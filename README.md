@@ -1,1 +1,1 @@
-# upgrade
+# Implementation of UPGRADE, an atomic broadcast protocol for arbitrary network conditions
