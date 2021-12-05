@@ -1,24 +1,30 @@
 package blockagreement
 
-import "github.com/niclabs/tcrsa"
+import (
+	"crypto/sha256"
 
-type preBlock struct {
-	vec     []*preBlockMessage
+	"github.com/niclabs/tcrsa"
+)
+
+type PreBlock struct {
+	Vec []*PreBlockMessage
 }
 
-type preBlockMessage struct {
-	message []byte
-	sig     *tcrsa.SigShare
+type PreBlockMessage struct {
+	Message []byte
+	Sig     *tcrsa.SigShare
 }
 
-func (pre *preBlock) addMessage(node int, message *preBlockMessage) {
-	if pre.vec[node] == nil {
-		pre.vec[node] = message
+// Adds a message to the pre-block at given node index
+func (pre *PreBlock) AddMessage(node int, message *PreBlockMessage) {
+	if pre.Vec[node] == nil {
+		pre.Vec[node] = message
 	}
 }
 
-func (pre *preBlock) Quality() (counter int) {
-	for _, v := range pre.vec {
+// Returns the number of elements that are not nil
+func (pre *PreBlock) Quality() (counter int) {
+	for _, v := range pre.Vec {
 		if v != nil {
 			counter++
 		}
@@ -26,12 +32,24 @@ func (pre *preBlock) Quality() (counter int) {
 	return counter
 }
 
-func NewPreBlock(n int) *preBlock {
-	var vec []*preBlockMessage
+// Concatenates all the messages and takes the hash of that byte array
+// TODO: maybe hash with sig?
+func (pre *PreBlock) Hash() [32]byte {
+	var inp []byte
+	for _, m := range pre.Vec {
+		inp = append(inp, m.Message...)
+	}
+	hash := sha256.Sum256(inp)
+	return hash
+}
+
+// Returns a new empty pre-block with given size
+func NewPreBlock(n int) *PreBlock {
+	var vec []*PreBlockMessage
 	for i := 0; i < n; i++ {
 		vec = append(vec, nil)
 	}
-	return &preBlock{
-		vec: vec,
+	return &PreBlock{
+		Vec: vec,
 	}
 }

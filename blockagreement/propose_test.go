@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"io/ioutil"
+	//"io/ioutil"
 	"log"
-	"os"
+	//"os"
 	"sync"
 	"testing"
 	"time"
@@ -19,10 +19,10 @@ import (
 // - invalid proposal from leader
 // - round > 0
 
-func TestMain(m *testing.M) {
-	log.SetOutput(ioutil.Discard)
-	os.Exit(m.Run())
-}
+// func TestMain(m *testing.M) {
+// 	log.SetOutput(ioutil.Discard)
+// 	os.Exit(m.Run())
+// }
 
 type testProposeInstance struct {
 	n               int
@@ -31,7 +31,7 @@ type testProposeInstance struct {
 	round           int
 	nodeChans       []chan *message
 	tickers         []chan int
-	outs            []chan *preBlock
+	outs            []chan *PreBlock
 	ps              []*proposeProtocol
 	kills           []chan struct{}
 	thresholdCrypto []*thresholdCrypto
@@ -45,7 +45,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		round:           round,
 		nodeChans:       make([]chan *message, n),
 		tickers:         make([]chan int, n),
-		outs:            make([]chan *preBlock, n),
+		outs:            make([]chan *PreBlock, n),
 		ps:              make([]*proposeProtocol, n),
 		kills:           make([]chan struct{}, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
@@ -65,13 +65,14 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		messageHashPadded, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, messageHash[:])
 		sig, _ := keyShares[i].Sign(messageHashPadded, crypto.SHA256, keyMeta)
 
-		preMes := &preBlockMessage{
-			message: message,
-			sig:     sig,
+		preMes := &PreBlockMessage{
+			Message: message,
+			Sig:     sig,
 		}
-		pre.addMessage(i, preMes)
+		pre.AddMessage(i, preMes)
 	}
 
+	// Set up individual propose protocols
 	for i := 0; i < n; i++ {
 		vote := &vote{
 			round:       0,
@@ -80,7 +81,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		}
 		prop.nodeChans[i] = make(chan *message, n*n)
 		prop.tickers[i] = make(chan int, n*n)
-		prop.outs[i] = make(chan *preBlock, n)
+		prop.outs[i] = make(chan *PreBlock, n)
 		prop.kills[i] = make(chan struct{}, n)
 		prop.thresholdCrypto[i] = &thresholdCrypto{
 			keyShare: keyShares[i],
@@ -92,15 +93,15 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 	return prop
 }
 
-func TestEveryoneAgreesOnSameOutputInRoundOne(t *testing.T) {
-	test := newTestProposeInstance(10, 4, 0, 0)
+func TestPropEveryoneAgreesOnSameOutputInRoundOne(t *testing.T) {
+	test := newTestProposeInstance(3, 1, 0, 0)
 
 	for i := 0; i < test.n-test.ts; i++ {
 		go test.ps[i].run()
 	}
 
 	start := time.Now()
-	go tickr(test.tickers, 20*time.Millisecond)
+	go tickr(test.tickers, 25*time.Millisecond, 4)
 
 	for i := 0; i < test.n-test.ts; i++ {
 		val := <-test.outs[i]
@@ -108,17 +109,18 @@ func TestEveryoneAgreesOnSameOutputInRoundOne(t *testing.T) {
 			t.Errorf("Received nil as output, expected %d", 0)
 		}
 	}
+
 	fmt.Println("Execution time:", time.Since(start))
 }
 
-func TestFailedRunButStillTerminates(t *testing.T) {
+func TestPropFailedRunButStillTerminates(t *testing.T) {
 	test := newTestProposeInstance(10, 4, 0, 0)
 	timeout := time.After(200 * time.Millisecond)
 	done := make(chan struct{})
 
 	helper := func() {
 		var wg sync.WaitGroup
-		// Start protocol for only 5 nodes
+		// Start protocol for only 5 honest nodes
 		for i := 0; i < test.n-test.ts-1; i++ {
 			wg.Add(1)
 			i := i
@@ -128,7 +130,7 @@ func TestFailedRunButStillTerminates(t *testing.T) {
 			}()
 		}
 		start := time.Now()
-		go tickr(test.tickers, 20*time.Millisecond)
+		go tickr(test.tickers, 25*time.Millisecond, 4)
 		wg.Wait()
 		fmt.Println("Execution time:", time.Since(start))
 	}
@@ -140,14 +142,14 @@ func TestFailedRunButStillTerminates(t *testing.T) {
 
 	select {
 	case <-timeout:
-		t.Errorf("No proper timeout")
+		t.Errorf("Protocol didn't terminate")
 	case <-done:
 	}
 }
 
-func tickr(chans []chan int, interval time.Duration) {
+func tickr(chans []chan int, interval time.Duration, maxTicks int) {
 	ticker := time.NewTicker(interval)
-	counter := 0
+	counter := 1
 
 	for range ticker.C {
 		log.Println("Tick:", counter)
@@ -156,7 +158,7 @@ func tickr(chans []chan int, interval time.Duration) {
 		}
 
 		counter++
-		if counter == 5 {
+		if counter == maxTicks {
 			log.Println("Ticker terminating")
 			return
 		}
