@@ -5,9 +5,9 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	//"io/ioutil"
+	"io/ioutil"
 	"log"
-	//"os"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -19,10 +19,10 @@ import (
 // - invalid proposal from leader
 // - round > 0
 
-// func TestMain(m *testing.M) {
-// 	log.SetOutput(ioutil.Discard)
-// 	os.Exit(m.Run())
-// }
+func TestMain(m *testing.M) {
+	log.SetOutput(ioutil.Discard)
+	os.Exit(m.Run())
+}
 
 type testProposeInstance struct {
 	n               int
