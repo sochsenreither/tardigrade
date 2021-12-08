@@ -38,7 +38,7 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 		leaderChan:      make(chan *leaderRequest, n),
 	}
 
-	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n-ts), uint16(n), nil)
+	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
 	if err != nil {
 		panic(err)
 	}

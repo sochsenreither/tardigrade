@@ -51,7 +51,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		thresholdCrypto: make([]*thresholdCrypto, n),
 	}
 
-	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n-ts), uint16(n), nil)
+	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
 	if err != nil {
 		panic(err)
 	}

@@ -3,18 +3,18 @@ package broadcast
 import (
 	"bytes"
 	"fmt"
-	// "io/ioutil"
-	// "log"
-	// "os"
+	"io/ioutil"
+	"log"
+	"os"
 	"sync"
 	"testing"
 	"time"
 )
 
-// func TestMain(m *testing.M) {
-// 	log.SetOutput(ioutil.Discard)
-// 	os.Exit(m.Run())
-// }
+func TestMain(m *testing.M) {
+	log.SetOutput(ioutil.Discard)
+	os.Exit(m.Run())
+}
 
 type testBBInstance struct {
 	n int
