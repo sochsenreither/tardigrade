@@ -23,11 +23,11 @@ func TestMain(m *testing.M) {
 }
 
 func TestCoinMultipleRounds(t *testing.T) {
-	n := 16
+	n := 64
 
 	keyShares, keyMeta, requestChannel := setup(n)
 
-	for i := 0; i < 46; i++ {
+	for i := 0; i < 7; i++ {
 		wg.Add(1)
 		go runner(t, i, n, keyShares, keyMeta, requestChannel)
 	}

@@ -36,6 +36,7 @@ func (cc *CommonCoin) run() {
 	// Maps from round -> nodeId
 	received := make(map[int]map[int]*coinRequest)
 	alreadySent := make(map[int]bool)
+	coinVals := make(map[int]byte)
 
 	for request := range cc.requestChannel {
 		sender := request.sender
@@ -69,36 +70,36 @@ func (cc *CommonCoin) run() {
 
 		// If enough signature shares were received for a given round combine them to a certificate
 		if len(received[round]) >= cc.n/2+1 {
-			log.Println("Creating certificate in round", round)
-			var sigShares tcrsa.SigShareList
-			for _, req := range received[round] {
-				sigShares = append(sigShares, req.sig)
-			}
-			certificate, err := sigShares.Join(hash, cc.keyMeta)
-			if err != nil {
-				log.Println("Common coin failed to create a certificate for round", round)
-				continue
-			}
-			err = rsa.VerifyPKCS1v15(cc.keyMeta.PublicKey, crypto.SHA256, h[:], certificate)
-			if err != nil {
-				log.Println("Common coin failed to verfiy created certificate for round", round)
-			}
-
-			// Compute the hash of the certificate, take the least significant bit and use that as coin.
-			certHash := sha256.Sum256(certificate)
-			lsb := certHash[len(certHash)-1] & 0x01
-
 			if alreadySent[round] {
-				// If the coin was already created and multicasted and someone asks for the value at
-				// a later time, send the value only to this person
-				request.answer <- lsb
+				// If the coin was already created and multicasted and someone asks for the value at a later time, send the value only to this person
+				request.answer <- coinVals[round]
 			} else {
-				// Else multicast it to everyone who made a request
+				// Create the coin value and send it to everyone
+				log.Println("Creating certificate in round", round)
+				var sigShares tcrsa.SigShareList
+				for _, req := range received[round] {
+					sigShares = append(sigShares, req.sig)
+				}
+				certificate, err := sigShares.Join(hash, cc.keyMeta)
+				if err != nil {
+					log.Println("Common coin failed to create a certificate for round", round)
+					continue
+				}
+				err = rsa.VerifyPKCS1v15(cc.keyMeta.PublicKey, crypto.SHA256, h[:], certificate)
+				if err != nil {
+					log.Println("Common coin failed to verfiy created certificate for round", round)
+				}
+
+				// Compute the hash of the certificate, take the least significant bit and use that as coin.
+				certHash := sha256.Sum256(certificate)
+				lsb := certHash[len(certHash)-1] & 0x01
+
 				for _, req := range received[round] {
 					req.answer <- lsb
 				}
+				alreadySent[round] = true
+				coinVals[round] = lsb
 			}
-			alreadySent[round] = true
 		}
 	}
 }
