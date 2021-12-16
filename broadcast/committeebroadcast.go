@@ -15,23 +15,24 @@ import (
 // - change value from []byte to correct type
 
 type CommitteeBroadcast struct {
-	n              int                               // Number of nodes
-	nodeId         int                               // Id of node
-	t              int                               // Number of maximum faulty nodes
-	tk             int                               // Threshold for distinct committee messages
-	kappa          int                               // Security parameter
-	epsilon        int                               // TODO: ??
-	senderId       int                               // Id of sender
-	committee      map[int]bool                      // List of committee members
-	value          []byte                            // Input value of the sender
-	bbNodeChans    []chan *broadcastMessage          // Communication channels for bb
-	cbbNodeChans   []chan *committeeBroadcastMessage // Communication channels for committe bb
-	senderChans    []chan []byte                     // Channel for sending initial val to committee
-	out            chan []byte                       // Output channel
-	broadcast      *broadcast                        // Underlying broadcast protocol
-	sig            *signatureScheme                  // PKI // TODO: better name
-	senderValue    []byte                            // Value received from sender
-	broadcastValue []byte                            // Value received from broadcast
+	n                int                                    // Number of nodes
+	nodeId           int                                    // Id of node
+	t                int                                    // Number of maximum faulty nodes
+	tk               int                                    // Threshold for distinct committee messages
+	kappa            int                                    // Security parameter
+	epsilon          int                                    // TODO: ??
+	senderId         int                                    // Id of sender
+	committee        map[int]bool                           // List of committee members
+	value            []byte                                 // Input value of the sender
+	out              chan []byte                            // Output channel
+	broadcast        *broadcast                             // Underlying broadcast protocol
+	sig              *signatureScheme                       // PKI // TODO: better name
+	senderValue      []byte                                 // Value received from sender
+	broadcastValue   []byte                                 // Value received from broadcast
+	senderFunc       func(val []byte)                       // For sending a value to the committee
+	multicastFunc    func(msg *committeeBroadcastMessage)   // For multicasting messages
+	receive          func() chan *committeeBroadcastMessage // Blocking function for receiving messages
+	receiveSenderVal func() chan []byte                     // Blocking function for receiving initial value from Sender
 }
 
 type signatureScheme struct {
@@ -46,12 +47,12 @@ type committeeBroadcastMessage struct {
 	sig    *tcrsa.SigShare
 }
 
-func NewCommitteeBroadcast(n, nodeId, t, kappa, senderId, epsilon int, committee map[int]bool, bbNodeChans []chan *broadcastMessage, cbbNodeChans []chan *committeeBroadcastMessage, senderChans []chan []byte, out chan []byte, sig *signatureScheme) *CommitteeBroadcast {
+func NewCommitteeBroadcast(n, nodeId, t, kappa, senderId, epsilon int, committee map[int]bool, bbInputChan chan *broadcastMessage, senderChans []chan []byte, out chan []byte, sig *signatureScheme, bbMulticastFunc func(msg *broadcastMessage), bbReceiveFunc func() chan *broadcastMessage, senderFunc func(val []byte), cbbMulticastFunc func(msg *committeeBroadcastMessage), receiveFunc func() chan *committeeBroadcastMessage, receiveSenderVal func() chan []byte) *CommitteeBroadcast {
 	tk := (((1 - epsilon) * kappa * t) / n)
 
 	broadcastOutput := make(chan []byte, 1)
 	killBroadcast := make(chan struct{}, 1)
-	broadcast := NewBroadcast(n, nodeId, t, senderId, bbNodeChans, killBroadcast, broadcastOutput)
+	broadcast := NewBroadcast(n, nodeId, t, senderId, killBroadcast, broadcastOutput, bbMulticastFunc, bbReceiveFunc)
 
 	cbb := &CommitteeBroadcast{
 		n:              n,
@@ -63,14 +64,15 @@ func NewCommitteeBroadcast(n, nodeId, t, kappa, senderId, epsilon int, committee
 		senderId:       senderId,
 		committee:      committee,
 		value:          nil,
-		bbNodeChans:    bbNodeChans,
-		cbbNodeChans:   cbbNodeChans,
-		senderChans:    senderChans,
 		out:            out,
 		broadcast:      broadcast,
 		sig:            sig,
 		senderValue:    nil,
 		broadcastValue: nil,
+		senderFunc:     senderFunc,
+		multicastFunc:  cbbMulticastFunc,
+		receive:        receiveFunc,
+		receiveSenderVal: receiveSenderVal,
 	}
 
 	return cbb
@@ -80,7 +82,7 @@ func (cbb *CommitteeBroadcast) run() {
 	// Sender sends his value to committee and inputs Hash(value) to BB
 	if cbb.isSender() {
 		log.Println("Sender is multicasting value to committee")
-		cbb.multicastCommittee(cbb.value)
+		cbb.senderFunc(cbb.value)
 		// Input H(v) to BB
 		hash := sha256.Sum256(cbb.value)
 		cbb.broadcast.setValue(hash[:])
@@ -99,13 +101,13 @@ func (cbb *CommitteeBroadcast) run() {
 			log.Println(cbb.nodeId, "got output from broadcast")
 			cbb.broadcastValue = h
 			cbb.prepareMulticastCBBMessage()
-		case v := <-cbb.senderChans[cbb.nodeId]:
+		case v := <-cbb.receiveSenderVal():
 			// If node is in the committee, has received output from broadcast and value from
 			// sender: If H(senderValue) = h, multicast (senderValue, h, sig_i)
 			log.Println(cbb.nodeId, "received value from leader")
 			cbb.senderValue = v
 			cbb.prepareMulticastCBBMessage()
-		case m := <-cbb.cbbNodeChans[cbb.nodeId]:
+		case m := <-cbb.receive():
 			if cbb.committee[m.sender] && cbb.isValidSignature(m.sig, m.sender) {
 				log.Println(cbb.nodeId, "received value from committee")
 				// If node is in the committee, has received output from broadcast and a message
@@ -156,16 +158,7 @@ func (cbb *CommitteeBroadcast) multicast(value []byte, hash []byte) {
 		hash:   hash[:],
 		sig:    cbb.sig.sig,
 	}
-	for _, node := range cbb.cbbNodeChans {
-		node <- message
-	}
-}
-
-// Sends a value to the committee
-func (cbb *CommitteeBroadcast) multicastCommittee(val []byte) {
-	for node := range cbb.committee {
-		cbb.senderChans[node] <- val
-	}
+	cbb.multicastFunc(message)
 }
 
 // Returns whether a signature is valid

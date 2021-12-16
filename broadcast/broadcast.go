@@ -8,14 +8,15 @@ import (
 // TODO: change output and input value types
 
 type broadcast struct {
-	n             int                      // Number of nodes
-	nodeId        int                      // Id of node
-	t             int                      // Number of maximum faulty nodes
-	senderId      int                      // Id of sender
-	value         []byte                   // Input value of the sender
-	nodeChans     []chan *broadcastMessage // Communication channels of all nodes
-	killBroadcast chan struct{}            // Termination channel
-	out           chan []byte              // Output channel
+	n             int                           // Number of nodes
+	nodeId        int                           // Id of node
+	t             int                           // Number of maximum faulty nodes
+	senderId      int                           // Id of sender
+	value         []byte                        // Input value of the sender
+	killBroadcast chan struct{}                 // Termination channel
+	out           chan []byte                   // Output channel
+	multicastFunc func(msg *broadcastMessage)   // Function for multicasting values
+	receive       func() chan *broadcastMessage // Blocking function for receiving messages
 }
 
 type broadcastStatus string
@@ -26,16 +27,17 @@ type broadcastMessage struct {
 	value  []byte
 }
 
-func NewBroadcast(n, nodeId, t, senderId int, nodeChans []chan *broadcastMessage, killBroadcast chan struct{}, out chan []byte) *broadcast {
+func NewBroadcast(n, nodeId, t, senderId int, killBroadcast chan struct{}, out chan []byte, multicastFunc func(msg *broadcastMessage), receive func() chan *broadcastMessage) *broadcast {
 	broadcast := &broadcast{
 		n:             n,
 		nodeId:        nodeId,
 		t:             t,
 		senderId:      senderId,
 		value:         nil,
-		nodeChans:     nodeChans,
 		killBroadcast: killBroadcast,
 		out:           out,
+		multicastFunc: multicastFunc,
+		receive:       receive,
 	}
 	return broadcast
 }
@@ -54,7 +56,7 @@ func (bb *broadcast) run() {
 			status: "val",
 			value:  bb.value,
 		}
-		bb.multicast(message)
+		bb.multicastFunc(message)
 	}
 
 	for {
@@ -62,7 +64,7 @@ func (bb *broadcast) run() {
 		case <-bb.killBroadcast:
 			log.Println(bb.nodeId, "received kill signal.. terminating")
 			return
-		case m := <-bb.nodeChans[bb.nodeId]:
+		case m := <-bb.receive():
 			switch m.status {
 			case "val":
 				// Upon receiving initial value v from sender, multicast (echo, v)
@@ -74,7 +76,7 @@ func (bb *broadcast) run() {
 						status: "echo",
 						value:  m.value,
 					}
-					bb.multicast(message)
+					bb.multicastFunc(message)
 				}
 			case "echo":
 				// Upon receiving (echo, v) messages on the same value v from n-t distinct nodes:
@@ -95,7 +97,7 @@ func (bb *broadcast) run() {
 						status: "ready",
 						value:  m.value,
 					}
-					bb.multicast(message)
+					bb.multicastFunc(message)
 				}
 			case "ready":
 				// Upon receiving (ready, v) messages on the same value v from t+1 distinct nodes:
@@ -116,7 +118,7 @@ func (bb *broadcast) run() {
 						status: "ready",
 						value:  m.value,
 					}
-					bb.multicast(message)
+					bb.multicastFunc(message)
 				}
 
 				// Upon receiving (ready, v) messages on the same value v from n-t distinct nodes:
@@ -142,11 +144,4 @@ func (bb *broadcast) setValue(value []byte) {
 // Returns whether the current node is the sender
 func (bb *broadcast) isSender() bool {
 	return bb.nodeId == bb.senderId
-}
-
-// Sends a message to every node
-func (bb *broadcast) multicast(message *broadcastMessage) {
-	for _, node := range bb.nodeChans {
-		node <- message
-	}
 }

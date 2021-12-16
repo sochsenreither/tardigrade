@@ -347,15 +347,20 @@ func (p *proposeProtocol) isValidProposal(proposal *proposeMessage) bool {
 }
 
 // Determines if a pre-block is valid
-// TODO: correct way to check?
 func (p *proposeProtocol) isValidPreBlock(pre *PreBlock) bool {
 	if pre.Quality() < (p.n - p.t) {
 		return false
 	}
 	for i, mes := range pre.Vec {
-		// If the index is invalid the pre-block is invalid. Signatures should be correct at this point (they get checked by parties before inputting their pre-block to the protocol)
-		// TODO: check signature?
+		// If the index is invalid the pre-block is invalid.
 		if i != int(mes.Sig.Id-1) {
+			return false
+		}
+		// If the signature is invalid, the pre-block is invalid
+		h := sha256.Sum256(mes.Message)
+		hash, _ := tcrsa.PrepareDocumentHash(p.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, h[:])
+		if err := mes.Sig.Verify(hash, p.thresholdCrypto.keyMeta); err != nil {
+			log.Println("Signature for message index", i, "in pre-block couldn't be verified.", err)
 			return false
 		}
 	}

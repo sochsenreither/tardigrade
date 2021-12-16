@@ -45,6 +45,22 @@ func NewTestCBBInstance(n, ts, sender, kappa int, committee map[int]bool) *testC
 		panic(err)
 	}
 
+	bbMulticastFunc := func(msg *broadcastMessage) {
+		for _, node := range testCBBInstance.bbNodeChans {
+			node <- msg
+		}
+	}
+	cbbMulticastFunc := func(msg *committeeBroadcastMessage) {
+		for _, node := range testCBBInstance.cbbNodeChans {
+			node <- msg
+		}
+	}
+	cbbSenderFunc := func(val []byte) {
+		for _, node := range testCBBInstance.senderChans {
+			node <- val
+		}
+	}
+
 	for i := 0; i < n; i++ {
 		hash := sha256.Sum256([]byte(strconv.Itoa(i)))
 		hashPadded, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
@@ -54,11 +70,26 @@ func NewTestCBBInstance(n, ts, sender, kappa int, committee map[int]bool) *testC
 			sig:     sig,
 			keyMeta: keyMeta,
 		}
+		bbReceiveFunc := func(index int) func() chan *broadcastMessage {
+			return func() chan *broadcastMessage{
+				return testCBBInstance.bbNodeChans[index]
+			}
+		}
+		cbbReceiveFunc := func(index int) func() chan *committeeBroadcastMessage {
+			return func() chan *committeeBroadcastMessage{
+				return testCBBInstance.cbbNodeChans[index]
+			}
+		}
+		cbbReceiveSenderVal := func(index int) func() chan []byte {
+			return func() chan []byte {
+				return testCBBInstance.senderChans[index]
+			}
+		}
 		testCBBInstance.bbNodeChans[i] = make(chan *broadcastMessage, 100*n)
 		testCBBInstance.cbbNodeChans[i] = make(chan *committeeBroadcastMessage, 100*n)
 		testCBBInstance.senderChans[i] = make(chan []byte, 100*n)
 		testCBBInstance.outs[i] = make(chan []byte, 100*n)
-		testCBBInstance.committeeBroadcasts[i] = NewCommitteeBroadcast(n, i, ts, kappa, sender, 0, committee, testCBBInstance.bbNodeChans, testCBBInstance.cbbNodeChans, testCBBInstance.senderChans, testCBBInstance.outs[i], sigScheme)
+		testCBBInstance.committeeBroadcasts[i] = NewCommitteeBroadcast(n, i, ts, kappa, sender, 0, committee, testCBBInstance.bbNodeChans[i], testCBBInstance.senderChans, testCBBInstance.outs[i], sigScheme, bbMulticastFunc, bbReceiveFunc(i), cbbSenderFunc, cbbMulticastFunc, cbbReceiveFunc(i), cbbReceiveSenderVal(i))
 	}
 
 	return testCBBInstance
@@ -89,7 +120,7 @@ func TestCBBEveryoneAgreesOnInput(t *testing.T) {
 	fmt.Println("Execution time:", time.Since(start))
 
 	for i := 0; i < testCBB.n-testCBB.t; i++ {
-		val := <- testCBB.outs[i]
+		val := <-testCBB.outs[i]
 		if !bytes.Equal(inp, val) {
 			t.Errorf("Node %d returned %q, expected %q", i, val, inp)
 		}

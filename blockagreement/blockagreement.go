@@ -52,6 +52,8 @@ func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *message, preBl
 }
 
 func (ba *BlockAgreement) run() {
+	// Clean up communication channel
+	ba.nodeChans[ba.nodeId] = make(chan *message, 1000)
 
 	for ba.round < ba.kappa {
 		// At time 5r:

@@ -71,10 +71,10 @@ func (cc *CommonCoin) run() {
 		// If enough signature shares were received for a given round combine them to a certificate
 		if len(received[round]) >= cc.n/2+1 {
 			if alreadySent[round] {
-				// If the coin was already created and multicasted and someone asks for the value at a later time, send the value only to this person
+				// If the coin was already created and multicasted and if some node asks for the value at a later time, send the value only to this node
 				request.answer <- coinVals[round]
 			} else {
-				// Create the coin value and send it to everyone
+				// Combine all received signature shares to a certificate
 				log.Println("Creating certificate in round", round)
 				var sigShares tcrsa.SigShareList
 				for _, req := range received[round] {
