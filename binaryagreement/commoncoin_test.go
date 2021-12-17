@@ -24,19 +24,19 @@ func TestMain(m *testing.M) {
 
 func TestCoinMultipleRounds(t *testing.T) {
 	n := 64
-	keyShares, keyMeta, requestChannel := setup(n)
+	keyShares, keyMeta, coin := setup(n)
 
 	for i := 0; i < 7; i++ {
-		go repeatRunner(t, i, n, keyShares, keyMeta, requestChannel, 1)
+		go repeatRunner(t, i, n, keyShares, keyMeta, coin.RequestChan, 1)
 	}
 	wg.Wait()
 }
 
 func TestCoinRedundantCalls(t *testing.T) {
 	n := 2
-	keyShares, keyMeta, requestChannel := setup(n)
+	keyShares, keyMeta, coin := setup(n)
 
-	go repeatRunner(t, 0, n, keyShares, keyMeta, requestChannel, 3)
+	go repeatRunner(t, 0, n, keyShares, keyMeta, coin.RequestChan, 3)
 
 	wg.Wait()
 }
@@ -45,12 +45,12 @@ func TestCoinIsBlocking(t *testing.T) {
 	n := 2
 	done := make(chan struct{})
 
-	keyShares, keyMeta, requestChannel := setup(n)
+	keyShares, keyMeta, coin := setup(n)
 	timeout := time.After(200 * time.Millisecond)
 
 	// Call the coin with only 3 nodes. This should block and there should be no output
 	go func() {
-		repeatRunner(t, 0, 1, keyShares, keyMeta, requestChannel, 1)
+		repeatRunner(t, 0, 1, keyShares, keyMeta, coin.RequestChan, 1)
 		done <- struct{}{}
 	}()
 
@@ -61,13 +61,13 @@ func TestCoinIsBlocking(t *testing.T) {
 	}
 }
 
-func setup(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta, chan *coinRequest) {
+func setup(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta, *CommonCoin) {
 	keyShares, keyMeta, _ := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
-	requestChannel := make(chan *coinRequest, 1234)
+	requestChannel := make(chan *coinRequest, 99999)
 	commonCoin := NewCommonCoin(n, keyMeta, requestChannel)
 	go commonCoin.run()
 
-	return keyShares, keyMeta, requestChannel
+	return keyShares, keyMeta, commonCoin
 }
 
 func repeatRunner(t testing.TB, round, n int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, requestChan chan *coinRequest, r int) {
@@ -88,6 +88,7 @@ func repeatRunner(t testing.TB, round, n int, keyShares tcrsa.KeyShareList, keyM
 			round:  round,
 			sig:    sigShares[i],
 			answer: answerChans[i],
+			instance: 0,
 		}
 		for i := 0; i < r; i++ {
 			requestChan <- coinRequest

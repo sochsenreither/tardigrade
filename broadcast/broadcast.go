@@ -11,11 +11,12 @@ type broadcast struct {
 	n             int                           // Number of nodes
 	nodeId        int                           // Id of node
 	t             int                           // Number of maximum faulty nodes
+	round         int                           // Current round
 	senderId      int                           // Id of sender
 	value         []byte                        // Input value of the sender
 	killBroadcast chan struct{}                 // Termination channel
 	out           chan []byte                   // Output channel
-	multicastFunc func(msg *broadcastMessage)   // Function for multicasting values
+	multicast     func(msg *broadcastMessage)   // Function for multicasting values
 	receive       func() chan *broadcastMessage // Blocking function for receiving messages
 }
 
@@ -27,16 +28,23 @@ type broadcastMessage struct {
 	value  []byte
 }
 
-func NewBroadcast(n, nodeId, t, senderId int, killBroadcast chan struct{}, out chan []byte, multicastFunc func(msg *broadcastMessage), receive func() chan *broadcastMessage) *broadcast {
+func NewBroadcast(n, nodeId, t, round, senderId int, killBroadcast chan struct{}, out chan []byte, multicastFunc func(instance, round int, msg *broadcastMessage), receiveFunc func(instance, round int) chan *broadcastMessage) *broadcast {
+	multicast := func(msg *broadcastMessage) {
+		multicastFunc(senderId, round, msg)
+	}
+	receive := func() chan *broadcastMessage {
+		return receiveFunc(senderId, round)
+	}
 	broadcast := &broadcast{
 		n:             n,
 		nodeId:        nodeId,
 		t:             t,
+		round:         round,
 		senderId:      senderId,
 		value:         nil,
 		killBroadcast: killBroadcast,
 		out:           out,
-		multicastFunc: multicastFunc,
+		multicast:     multicast,
 		receive:       receive,
 	}
 	return broadcast
@@ -50,13 +58,13 @@ func (bb *broadcast) run() {
 	readyMap := make(map[[32]byte]map[int]bool)
 
 	if bb.isSender() {
-		log.Println(bb.nodeId, "is multicasting the initial value")
+		log.Println(bb.nodeId, "is multicasting the initial value:", string(bb.value))
 		message := &broadcastMessage{
 			sender: bb.nodeId,
 			status: "val",
 			value:  bb.value,
 		}
-		bb.multicastFunc(message)
+		bb.multicast(message)
 	}
 
 	for {
@@ -69,14 +77,14 @@ func (bb *broadcast) run() {
 			case "val":
 				// Upon receiving initial value v from sender, multicast (echo, v)
 				if !leaderSent {
-					log.Println(bb.nodeId, "received value from", m.sender)
+					log.Println(bb.nodeId, "received value from", m.sender, ":", string(m.value))
 					leaderSent = true
 					message := &broadcastMessage{
 						sender: bb.nodeId,
 						status: "echo",
 						value:  m.value,
 					}
-					bb.multicastFunc(message)
+					bb.multicast(message)
 				}
 			case "echo":
 				// Upon receiving (echo, v) messages on the same value v from n-t distinct nodes:
@@ -97,7 +105,7 @@ func (bb *broadcast) run() {
 						status: "ready",
 						value:  m.value,
 					}
-					bb.multicastFunc(message)
+					bb.multicast(message)
 				}
 			case "ready":
 				// Upon receiving (ready, v) messages on the same value v from t+1 distinct nodes:
@@ -118,13 +126,13 @@ func (bb *broadcast) run() {
 						status: "ready",
 						value:  m.value,
 					}
-					bb.multicastFunc(message)
+					bb.multicast(message)
 				}
 
 				// Upon receiving (ready, v) messages on the same value v from n-t distinct nodes:
 				// Output v and terminate
 				if len(readyMap[hash]) >= bb.n-bb.t {
-					log.Println(bb.nodeId, "received", len(readyMap[hash]), "ready messages. Outputting value")
+					log.Println(bb.nodeId, "received", len(readyMap[hash]), "ready messages. Outputting value:", string(m.value))
 					bb.out <- m.value
 					return
 				}

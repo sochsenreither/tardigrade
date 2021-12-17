@@ -11,9 +11,9 @@ import (
 )
 
 type CommonCoin struct {
-	n              int               // Number of nodes
-	keyMeta        *tcrsa.KeyMeta    // PKI
-	requestChannel chan *coinRequest // Channel to receive requests
+	n           int               // Number of nodes
+	keyMeta     *tcrsa.KeyMeta    // PKI
+	RequestChan chan *coinRequest // Channel to receive requests
 }
 
 type coinRequest struct {
@@ -21,39 +21,41 @@ type coinRequest struct {
 	round  int
 	sig    *tcrsa.SigShare
 	answer chan byte
+	instance int
 }
 
 func NewCommonCoin(n int, keyMeta *tcrsa.KeyMeta, requestChannel chan *coinRequest) *CommonCoin {
 	coin := &CommonCoin{
-		n:              n,
-		keyMeta:        keyMeta,
-		requestChannel: requestChannel,
+		n:           n,
+		keyMeta:     keyMeta,
+		RequestChan: requestChannel,
 	}
 	return coin
 }
 
 func (cc *CommonCoin) run() {
-	// Maps from round -> nodeId
-	received := make(map[int]map[int]*coinRequest)
-	alreadySent := make(map[int]bool)
+	// Maps from round -> instance -> nodeId
+	received := make(map[int]map[int]map[int]*coinRequest)
+	alreadySent := make(map[int]map[int]bool)
 	coinVals := make(map[int]byte)
 
-	for request := range cc.requestChannel {
+	for request := range cc.RequestChan {
 		sender := request.sender
 		round := request.round
+		instance := request.instance
 
 		// Create a new map the first time a request from a new round comes in
 		if received[round] == nil {
-			received[round] = make(map[int]*coinRequest)
+			received[round] = make(map[int]map[int]*coinRequest)
+		}
+		if alreadySent[round] == nil {
+			alreadySent[round] = make(map[int]bool)
 		}
 
-		// Check if a request was already made by a node
-		if received[round][sender] != nil {
-			log.Println("Already received coin request from", sender, "in round", round)
-			continue
+		if received[round][instance] == nil {
+			received[round][instance] = make(map[int]*coinRequest)
 		}
-		log.Println("Common coin received request for round", round, "from", sender)
-		received[round][sender] = request
+		received[round][instance][sender] = request
 
 		// Hash the round number
 		h := sha256.Sum256([]byte(strconv.Itoa(round)))
@@ -69,15 +71,15 @@ func (cc *CommonCoin) run() {
 		}
 
 		// If enough signature shares were received for a given round combine them to a certificate
-		if len(received[round]) >= cc.n/2+1 {
-			if alreadySent[round] {
+		if len(received[round][instance]) >= cc.n/2+1 {
+			if alreadySent[round][instance] {
 				// If the coin was already created and multicasted and if some node asks for the value at a later time, send the value only to this node
 				request.answer <- coinVals[round]
 			} else {
 				// Combine all received signature shares to a certificate
 				log.Println("Creating certificate in round", round)
 				var sigShares tcrsa.SigShareList
-				for _, req := range received[round] {
+				for _, req := range received[round][instance] {
 					sigShares = append(sigShares, req.sig)
 				}
 				certificate, err := sigShares.Join(hash, cc.keyMeta)
@@ -94,10 +96,10 @@ func (cc *CommonCoin) run() {
 				certHash := sha256.Sum256(certificate)
 				lsb := certHash[len(certHash)-1] & 0x01
 
-				for _, req := range received[round] {
+				for _, req := range received[round][instance] {
 					req.answer <- lsb
 				}
-				alreadySent[round] = true
+				alreadySent[round][instance] = true
 				coinVals[round] = lsb
 			}
 		}

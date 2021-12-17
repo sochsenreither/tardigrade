@@ -5,6 +5,9 @@ import (
 	"time"
 )
 
+// TODO:
+// - abstract send/receive
+
 type BlockAgreement struct {
 	n                       int                 // Number of nodes
 	nodeId                  int                 // Id of node

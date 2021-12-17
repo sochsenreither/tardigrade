@@ -13,12 +13,14 @@ import (
 // TODO:
 // - hash size security parameter
 // - change value from []byte to correct type
+// - change sender and receiver function
 
 type CommitteeBroadcast struct {
 	n                int                                    // Number of nodes
 	nodeId           int                                    // Id of node
 	t                int                                    // Number of maximum faulty nodes
 	tk               int                                    // Threshold for distinct committee messages
+	round            int                                    // Current round
 	kappa            int                                    // Security parameter
 	epsilon          int                                    // TODO: ??
 	senderId         int                                    // Id of sender
@@ -47,31 +49,32 @@ type committeeBroadcastMessage struct {
 	sig    *tcrsa.SigShare
 }
 
-func NewCommitteeBroadcast(n, nodeId, t, kappa, senderId, epsilon int, committee map[int]bool, bbInputChan chan *broadcastMessage, senderChans []chan []byte, out chan []byte, sig *signatureScheme, bbMulticastFunc func(msg *broadcastMessage), bbReceiveFunc func() chan *broadcastMessage, senderFunc func(val []byte), cbbMulticastFunc func(msg *committeeBroadcastMessage), receiveFunc func() chan *committeeBroadcastMessage, receiveSenderVal func() chan []byte) *CommitteeBroadcast {
+func NewCommitteeBroadcast(n, nodeId, t, round, kappa, senderId, epsilon int, committee map[int]bool, out chan []byte, sig *signatureScheme, bbMulticastFunc func(instance, round int, msg *broadcastMessage), bbReceiveFunc func(instance, round int) chan *broadcastMessage, senderFunc func(val []byte), cbbMulticastFunc func(msg *committeeBroadcastMessage), receiveFunc func() chan *committeeBroadcastMessage, receiveSenderVal func() chan []byte) *CommitteeBroadcast {
 	tk := (((1 - epsilon) * kappa * t) / n)
 
 	broadcastOutput := make(chan []byte, 1)
 	killBroadcast := make(chan struct{}, 1)
-	broadcast := NewBroadcast(n, nodeId, t, senderId, killBroadcast, broadcastOutput, bbMulticastFunc, bbReceiveFunc)
+	broadcast := NewBroadcast(n, nodeId, t, round, senderId, killBroadcast, broadcastOutput, bbMulticastFunc, bbReceiveFunc)
 
 	cbb := &CommitteeBroadcast{
-		n:              n,
-		nodeId:         nodeId,
-		t:              t,
-		tk:             tk,
-		kappa:          kappa,
-		epsilon:        epsilon,
-		senderId:       senderId,
-		committee:      committee,
-		value:          nil,
-		out:            out,
-		broadcast:      broadcast,
-		sig:            sig,
-		senderValue:    nil,
-		broadcastValue: nil,
-		senderFunc:     senderFunc,
-		multicastFunc:  cbbMulticastFunc,
-		receive:        receiveFunc,
+		n:                n,
+		nodeId:           nodeId,
+		t:                t,
+		tk:               tk,
+		round:            round,
+		kappa:            kappa,
+		epsilon:          epsilon,
+		senderId:         senderId,
+		committee:        committee,
+		value:            nil,
+		out:              out,
+		broadcast:        broadcast,
+		sig:              sig,
+		senderValue:      nil,
+		broadcastValue:   nil,
+		senderFunc:       senderFunc,
+		multicastFunc:    cbbMulticastFunc,
+		receive:          receiveFunc,
 		receiveSenderVal: receiveSenderVal,
 	}
 
