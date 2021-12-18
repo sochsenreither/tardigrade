@@ -9,7 +9,7 @@ import (
 
 	"github.com/niclabs/tcrsa"
 )
-
+// TODO: make receive blocking
 type BinaryAgreement struct {
 	n               int                     // Number of nodes
 	nodeId          int                     // Id of node
@@ -88,7 +88,7 @@ func (aba *BinaryAgreement) run() {
 	messageHandler := func() {
 		for {
 			select {
-			case <- termChan:
+			case <-termChan:
 				return
 			case m := <-aba.receive():
 				r, v, s := m.round, m.value, m.sender
@@ -265,10 +265,10 @@ func (aba *BinaryAgreement) callCommonCoin() int {
 
 	log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "sending request to coin")
 	aba.coin.RequestChan <- &coinRequest{
-		sender: aba.nodeId,
-		round:  aba.round,
-		sig:    sig,
-		answer: answerChan,
+		sender:   aba.nodeId,
+		round:    aba.round,
+		sig:      sig,
+		answer:   answerChan,
 		instance: aba.instance,
 	}
 

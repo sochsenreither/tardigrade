@@ -28,7 +28,7 @@ type testCBBInstance struct {
 	committeeBroadcasts []*CommitteeBroadcast
 }
 
-func setupKeys(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta) {
+func setupKeys_old(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta) {
 	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
 	if err != nil {
 		panic(err)
@@ -131,7 +131,7 @@ func TestCBBEveryoneAgreesOnInput(t *testing.T) {
 	committee[1] = true
 	committee[2] = true
 
-	keyShares, keyMeta := setupKeys(11)
+	keyShares, keyMeta := setupKeys_old(11)
 	testCBB := NewTestCBBInstance(10, 2, 0, 3, 0, committee, keyShares, keyMeta)
 	var wg sync.WaitGroup
 
@@ -164,7 +164,7 @@ func TestCBBDifferentRound(t *testing.T) {
 	committee[1] = true
 	committee[2] = true
 
-	keyShares, keyMeta := setupKeys(11)
+	keyShares, keyMeta := setupKeys_old(11)
 	testCBB0 := NewTestCBBInstance(10, 0, 0, 3, 0, committee, keyShares, keyMeta)
 	testCBB1 := NewTestCBBInstance(10, 2, 1, 3, 1, committee, keyShares, keyMeta)
 
@@ -215,7 +215,7 @@ func TestCBBParallelWithDifferentSenders(t *testing.T) {
 	n := 3
 	committee := map[int]bool{1: true}
 	inp := [3][]byte{[]byte("one"), []byte("two"), []byte("three")}
-	keyShares, keyMeta := setupKeys(4)
+	keyShares, keyMeta := setupKeys_old(4)
 	var wg sync.WaitGroup
 
 	testInstances := make(map[int]*testCBBInstance)

@@ -1,155 +1,329 @@
 package broadcast
 
 import (
+	"crypto"
 	"crypto/sha256"
 	"log"
+	"strconv"
+
+	"github.com/niclabs/tcrsa"
 )
 
-// TODO: change output and input value types
+// TODO:
+// - hash length is hardcoded to 32 for now
 
-type broadcast struct {
-	n             int                           // Number of nodes
-	nodeId        int                           // Id of node
-	t             int                           // Number of maximum faulty nodes
-	round         int                           // Current round
-	senderId      int                           // Id of sender
-	value         []byte                        // Input value of the sender
-	killBroadcast chan struct{}                 // Termination channel
-	out           chan []byte                   // Output channel
-	multicast     func(msg *broadcastMessage)   // Function for multicasting values
-	receive       func() chan *broadcastMessage // Blocking function for receiving messages
+type ReliableBroadcast struct {
+	n         int                // Number of nodes
+	nodeId    int                // Id of node
+	t         int                // Number of maximum faulty nodes
+	tk        int                // Threshold for distinct committee messages
+	senderId  int                // Id of sender
+	committee map[int]bool       // List of committee members
+	value     []byte             // Input value of the sender
+	out       chan []byte        // Output channel
+	sig       *Signature         // Personal signature and keymeta
+	multicast func(msg *message) // Function for multicasting messages
+	receive   func() *message    // Blocking function for receiving messages
 }
 
-type broadcastStatus string
+type Signature struct {
+	sig     *tcrsa.SigShare // Signature on node index signed by the dealer
+	keyMeta *tcrsa.KeyMeta  // Contains public keys to verify signature
+}
 
-type broadcastMessage struct {
+type message struct {
+	sender  int
+	paylaod interface{}
+}
+
+// Struct representing a message for Bracha's asynchronous reliable broadcast protocol
+type bMessage struct {
 	sender int
-	status broadcastStatus
+	status string // This can be be either "VAL", "ECHO", or "READY"
+	value  [32]byte
+}
+
+// Struct representing a message for the committee based reliable broadcast protocol
+type cMessage struct {
+	sender int
+	value  []byte
+	hash   [32]byte
+	sig    *tcrsa.SigShare
+}
+
+// Struct repesenting a value send from the sender to the committee
+type sMessage struct {
+	sender int
 	value  []byte
 }
 
-func NewBroadcast(n, nodeId, t, round, senderId int, killBroadcast chan struct{}, out chan []byte, multicastFunc func(instance, round int, msg *broadcastMessage), receiveFunc func(instance, round int) chan *broadcastMessage) *broadcast {
-	multicast := func(msg *broadcastMessage) {
-		multicastFunc(senderId, round, msg)
-	}
-	receive := func() chan *broadcastMessage {
-		return receiveFunc(senderId, round)
-	}
-	broadcast := &broadcast{
-		n:             n,
-		nodeId:        nodeId,
-		t:             t,
-		round:         round,
-		senderId:      senderId,
-		value:         nil,
-		killBroadcast: killBroadcast,
-		out:           out,
-		multicast:     multicast,
-		receive:       receive,
-	}
-	return broadcast
+type ReliableBroadcastConfig struct {
+	n        int
+	nodeId   int
+	t        int
+	kappa    int
+	epsilon  int
+	senderId int
+	round    int
 }
 
-func (bb *broadcast) run() {
-	ready := false
-	leaderSent := false
-	// maps have structure hash(val) -> nodeId
-	echoMap := make(map[[32]byte]map[int]bool)
-	readyMap := make(map[[32]byte]map[int]bool)
+func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, out chan []byte, sig *Signature, multicastFunc func(nodeId, instance, round int, msg *message), receiveFunc func(nodeId, instance, round int) *message) *ReliableBroadcast {
+	tk := (((1 - cfg.epsilon) * cfg.kappa * cfg.t) / cfg.n)
+	multicast := func(msg *message) {
+		multicastFunc(cfg.nodeId, cfg.senderId, cfg.round, msg)
+	}
+	receive := func() *message {
+		return receiveFunc(cfg.nodeId, cfg.senderId, cfg.round)
+	}
+	rbc := &ReliableBroadcast{
+		n:         cfg.n,
+		nodeId:    cfg.nodeId,
+		t:         cfg.t,
+		tk:        tk,
+		senderId:  cfg.senderId,
+		committee: committee,
+		value:     nil,
+		out:       out,
+		sig:       sig,
+		multicast: multicast,
+		receive:   receive,
+	}
+	return rbc
+}
 
-	if bb.isSender() {
-		log.Println(bb.nodeId, "is multicasting the initial value:", string(bb.value))
-		message := &broadcastMessage{
-			sender: bb.nodeId,
-			status: "val",
-			value:  bb.value,
-		}
-		bb.multicast(message)
+func (rbc *ReliableBroadcast) run() {
+	// READY message was already sent
+	ready := false
+	// Received value from sender
+	senderSent := false
+	// Initial VAL message from sender was sent
+	initialVal := false
+	broadcastDone := false
+	// Keep track of received messages. Maps hash(val) -> nodeId
+	echoReceived := make(map[[32]byte]map[int]bool)
+	readyReceived := make(map[[32]byte]map[int]bool)
+	committeeReceived := make(map[[32]byte]map[int]bool)
+	// Value received after running Bracha's broadcast
+	var broadcastValue [32]byte
+	// Value received from Sender
+	var senderValue []byte
+
+	if rbc.isSender() {
+		rbc.multicastToCommittee()
+		rbc.multicastVal()
 	}
 
 	for {
-		select {
-		case <-bb.killBroadcast:
-			log.Println(bb.nodeId, "received kill signal.. terminating")
-			return
-		case m := <-bb.receive():
+		if senderSent && broadcastDone && rbc.committee[rbc.nodeId] {
+			rbc.multicastCommitteeMessage(senderValue, broadcastValue)
+		}
+		mes := rbc.receive()
+		switch m := mes.paylaod.(type) {
+		case *bMessage:
+			if broadcastDone {
+				break
+			}
 			switch m.status {
-			case "val":
-				// Upon receiving initial value v from sender, multicast (echo, v)
-				if !leaderSent {
-					log.Println(bb.nodeId, "received value from", m.sender, ":", string(m.value))
-					leaderSent = true
-					message := &broadcastMessage{
-						sender: bb.nodeId,
-						status: "echo",
-						value:  m.value,
-					}
-					bb.multicast(message)
+			case "VAL":
+				rbc.handleVal(m, &initialVal)
+			case "ECHO":
+				rbc.handleEcho(m, echoReceived, &ready)
+			case "READY":
+				rbc.handleReady(m, readyReceived, &ready, &broadcastDone, &broadcastValue)
+			}
+		case *cMessage:
+			if rbc.isValidCommitteeMessage(m) {
+				if broadcastDone && rbc.committee[rbc.nodeId] {
+					rbc.multicastCommitteeMessage(m.value, broadcastValue)
 				}
-			case "echo":
-				// Upon receiving (echo, v) messages on the same value v from n-t distinct nodes:
-				// If ready = false, set ready = true and multicast (ready, v)
-				// Check if received value is the same as the initial sender value
-				hash := sha256.Sum256(m.value)
-				if echoMap[hash] == nil {
-					echoMap[hash] = make(map[int]bool)
-				}
-				echoMap[hash][m.sender] = true
-
-				// Check if there are enough received echo messages.
-				if len(echoMap[hash]) >= bb.n-bb.t && !ready {
-					log.Println(bb.nodeId, "received", len(echoMap[hash]), "echos.", "needed", bb.n-bb.t, "Sending ready")
-					ready = true
-					message := &broadcastMessage{
-						sender: bb.nodeId,
-						status: "ready",
-						value:  m.value,
-					}
-					bb.multicast(message)
-				}
-			case "ready":
-				// Upon receiving (ready, v) messages on the same value v from t+1 distinct nodes:
-				// If ready = false, set ready = true and multicast (ready, v)
-				// Check if received value is the same as the initial sender value
-				hash := sha256.Sum256(m.value)
-				if readyMap[hash] == nil {
-					readyMap[hash] = make(map[int]bool)
-				}
-				readyMap[hash][m.sender] = true
-
-				// Check if there are enough received ready messages.
-				if len(readyMap[hash]) >= bb.t+1 && !ready {
-					log.Println(bb.nodeId, "received", len(readyMap[hash]), "ready messages. Sending ready")
-					ready = true
-					message := &broadcastMessage{
-						sender: bb.nodeId,
-						status: "ready",
-						value:  m.value,
-					}
-					bb.multicast(message)
-				}
-
-				// Upon receiving (ready, v) messages on the same value v from n-t distinct nodes:
-				// Output v and terminate
-				if len(readyMap[hash]) >= bb.n-bb.t {
-					log.Println(bb.nodeId, "received", len(readyMap[hash]), "ready messages. Outputting value:", string(m.value))
-					bb.out <- m.value
+				if rbc.handleCommitteeMessage(m, committeeReceived) {
 					return
 				}
-
-			default:
-				log.Println(bb.nodeId, "received unknown status code from", m.sender)
 			}
+		case *sMessage:
+			senderSent = true
+			senderValue = m.value
 		}
 	}
 }
 
-// Sets a given value
-func (bb *broadcast) setValue(value []byte) {
-	bb.value = value
+// isSender returns if a node is the sender.
+func (rbc *ReliableBroadcast) isSender() bool {
+	return rbc.nodeId == rbc.senderId
 }
 
-// Returns whether the current node is the sender
-func (bb *broadcast) isSender() bool {
-	return bb.nodeId == bb.senderId
+// SetValue sets a given value for the sender.
+func (rbc *ReliableBroadcast) SetValue(value []byte) {
+	rbc.value = value
+}
+
+// handleVal sends an ECHO message for a given VAL message
+func (rbc *ReliableBroadcast) handleVal(m *bMessage, initialVal *bool) {
+	if !*initialVal {
+		*initialVal = true
+		log.Printf("%d received value from %d", rbc.nodeId, m.sender)
+		rbc.multicastEcho(m)
+	}
+}
+
+// handleEcho saves received ECHO messages and if ECHO messages from n-t distinct nodes are
+// received, a READY message will be multicasted.
+func (rbc *ReliableBroadcast) handleEcho(m *bMessage, echoReceived map[[32]byte]map[int]bool, ready *bool) {
+	log.Printf("%d received ECHO from %d", rbc.nodeId, m.sender)
+	hash := sha256.Sum256(m.value[:])
+	if echoReceived[hash] == nil {
+		echoReceived[hash] = make(map[int]bool)
+	}
+	echoReceived[hash][m.sender] = true
+
+	// Check if there are enough ECHO messages on the same value.
+	if len(echoReceived[hash]) >= rbc.n-rbc.t && !*ready {
+		log.Printf("%d received enough ECHOs. Sending READY..", rbc.nodeId)
+		*ready = true
+		rbc.multicastReady(m)
+	}
+}
+
+// handleReady saved received READY messages and if READY messages from t+1 distinct nodes are
+// received, a READY will be multicasted. If n-t READY messages on some value v* are received,
+// output v*.
+func (rbc *ReliableBroadcast) handleReady(m *bMessage, readyMap map[[32]byte]map[int]bool, ready, broadcastDone *bool, broadcastValue *[32]byte) {
+	log.Printf("%d received READY from %d", rbc.nodeId, m.sender)
+	hash := sha256.Sum256(m.value[:])
+	if readyMap[hash] == nil {
+		readyMap[hash] = make(map[int]bool)
+	}
+	readyMap[hash][m.sender] = true
+
+	// Check if there are enough READY messages on the same value.
+	if len(readyMap[hash]) >= rbc.t+1 && !*ready {
+		log.Printf("%d received %d READY messages. Sending READY..", rbc.nodeId, len(readyMap[hash]))
+		*ready = true
+		rbc.multicastReady(m)
+	}
+
+	// If enough READY messages on the same value v* are received, output v*.
+	if len(readyMap[hash]) >= rbc.n-rbc.t {
+		log.Printf("%d received %d READY messages. Outputting..", rbc.nodeId, len(readyMap[hash]))
+		*broadcastDone = true
+		*broadcastValue = m.value
+	}
+}
+
+// handleCommitteeMessage saved received messages from committee members. If enough messages are
+// received, it will return true in so the protocol can terminate.
+func (rbc *ReliableBroadcast) handleCommitteeMessage(m *cMessage, committeeReceived map[[32]byte]map[int]bool) bool {
+	if committeeReceived[m.hash] == nil {
+		committeeReceived[m.hash] = make(map[int]bool)
+	}
+	committeeReceived[m.hash][m.sender] = true
+
+	// Upon receiving messages on the same value v from tk+1 distinct committee members, output v
+	// and terminate.
+	if len(committeeReceived[m.hash]) >= rbc.tk+1 {
+		log.Printf("Node %d, instance %d: outputting '%s' and terminating..", rbc.nodeId, rbc.senderId, string(m.value))
+		rbc.out <- m.value
+		return true
+	}
+	return false
+}
+
+// multicastToCommittee sends a value to every committee member.
+func (rbc *ReliableBroadcast) multicastToCommittee() {
+	mes := &message{
+		sender: rbc.nodeId,
+		paylaod: &sMessage{
+			sender: rbc.nodeId,
+			value:  rbc.value,
+		},
+	}
+	rbc.multicast(mes)
+}
+
+// multicastVal multicasts a VAL message.
+func (rbc *ReliableBroadcast) multicastVal() {
+	log.Printf("%d multicasting VAL", rbc.nodeId)
+	hash := sha256.Sum256(rbc.value)
+	mes := &message{
+		sender: rbc.nodeId,
+		paylaod: &bMessage{
+			sender: rbc.nodeId,
+			status: "VAL",
+			value:  hash,
+		},
+	}
+	rbc.multicast(mes)
+}
+
+// muticastEcho multicasts a ECHO message.
+func (rbc *ReliableBroadcast) multicastEcho(m *bMessage) {
+	log.Printf("%d multicasting ECHO", rbc.nodeId)
+	mes := &message{
+		sender: rbc.nodeId,
+		paylaod: &bMessage{
+			sender: rbc.nodeId,
+			status: "ECHO",
+			value:  m.value,
+		},
+	}
+	rbc.multicast(mes)
+}
+
+// multicastReady multicasts a READY message.
+func (rbc *ReliableBroadcast) multicastReady(m *bMessage) {
+	log.Printf("%d multicasting READY", rbc.nodeId)
+	mes := &message{
+		sender: rbc.nodeId,
+		paylaod: &bMessage{
+			sender: rbc.nodeId,
+			status: "READY",
+			value:  m.value,
+		},
+	}
+	rbc.multicast(mes)
+}
+
+// multicastCommitteeMessage multicasts a message from a committee member if the hash received by
+// the broadcast matches the hash of the sender value.
+func (rbc *ReliableBroadcast) multicastCommitteeMessage(senderValue []byte, broadcastValue [32]byte) {
+	if h := sha256.Sum256(senderValue); h == broadcastValue {
+		mes := &message{
+			sender: rbc.nodeId,
+			paylaod: &cMessage{
+				sender: rbc.nodeId,
+				value:  senderValue,
+				hash:   broadcastValue,
+				sig:    rbc.sig.sig,
+			},
+		}
+		rbc.multicast(mes)
+	}
+}
+
+// isValidCommitteeMessage return wheter a message from a committee member is valid. The sender
+// must be in the committee, the hash must be correct and the signature must be valid.
+func (rbc *ReliableBroadcast) isValidCommitteeMessage(m *cMessage) bool {
+	if !rbc.committee[m.sender] {
+		return false
+	}
+	hash := sha256.Sum256(m.value)
+	if hash != m.hash {
+		return false
+	}
+	return rbc.isValidSignature(m)
+}
+
+// isValidSignature returns whether a signature is valid.
+func (rbc *ReliableBroadcast) isValidSignature(m *cMessage) bool {
+	hash := sha256.Sum256([]byte(strconv.Itoa(m.sender)))
+	paddedHash, err := tcrsa.PrepareDocumentHash(rbc.sig.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	if err != nil {
+		log.Printf("%d failed to hash id of %d, err: %s", rbc.nodeId, m.sender, err)
+		return false
+	}
+	if err = m.sig.Verify(paddedHash, rbc.sig.keyMeta); err != nil {
+		log.Printf("%d received invalid signature from %d", rbc.nodeId, m.sender)
+		return false
+	}
+	return true
 }

@@ -51,7 +51,6 @@ type committeeBroadcastMessage struct {
 
 func NewCommitteeBroadcast(n, nodeId, t, round, kappa, senderId, epsilon int, committee map[int]bool, out chan []byte, sig *signatureScheme, bbMulticastFunc func(instance, round int, msg *broadcastMessage), bbReceiveFunc func(instance, round int) chan *broadcastMessage, senderFunc func(val []byte), cbbMulticastFunc func(msg *committeeBroadcastMessage), receiveFunc func() chan *committeeBroadcastMessage, receiveSenderVal func() chan []byte) *CommitteeBroadcast {
 	tk := (((1 - epsilon) * kappa * t) / n)
-
 	broadcastOutput := make(chan []byte, 1)
 	killBroadcast := make(chan struct{}, 1)
 	broadcast := NewBroadcast(n, nodeId, t, round, senderId, killBroadcast, broadcastOutput, bbMulticastFunc, bbReceiveFunc)

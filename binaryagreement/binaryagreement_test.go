@@ -20,20 +20,23 @@ func TestABASameValue(t *testing.T) {
 	outs := make(map[int][]chan int)
 
 	multicast := func(instance, round int, msg *abaMessage) {
-		mu.Lock()
-		if nodeChans[round] == nil {
-			nodeChans[round] = make(map[int][]chan *abaMessage)
-		}
-		if len(nodeChans[round][instance]) != n {
-			nodeChans[round][instance] = make([]chan *abaMessage, n)
-			for i := 0; i < n; i++ {
-				nodeChans[round][instance][i] = make(chan *abaMessage, 99*n)
+		go func() {
+			mu.Lock()
+			if nodeChans[round] == nil {
+				nodeChans[round] = make(map[int][]chan *abaMessage)
 			}
-		}
-		mu.Unlock()
-		for _, node := range nodeChans[round][instance] {
-			node <- msg
-		}
+			if len(nodeChans[round][instance]) != n {
+				nodeChans[round][instance] = make([]chan *abaMessage, n)
+				for i := 0; i < n; i++ {
+					nodeChans[round][instance][i] = make(chan *abaMessage, 99*n)
+				}
+			}
+			//time.Sleep(time.Duration(rand.Intn(30) * int(time.Millisecond)))
+			mu.Unlock()
+			for _, node := range nodeChans[round][instance] {
+				node <- msg
+			}
+		}()
 	}
 
 	for i := 0; i < n; i++ {
@@ -55,7 +58,7 @@ func TestABASameValue(t *testing.T) {
 		}
 		thresholdCrypto := &thresholdCrypto{
 			keyShare: keyShares[i],
-			keyMeta: keyMeta,
+			keyMeta:  keyMeta,
 		}
 		outs[i] = make([]chan int, n)
 		for j := 0; j < n; j++ {
@@ -64,7 +67,7 @@ func TestABASameValue(t *testing.T) {
 		}
 	}
 	start := time.Now()
-	wg.Add((n-ta)*(n-ta))
+	wg.Add((n - ta) * (n - ta))
 	for i := 0; i < n-ta; i++ {
 		i := i
 		for j := 0; j < n-ta; j++ {
@@ -82,7 +85,7 @@ func TestABASameValue(t *testing.T) {
 	for i := 0; i < n-ta; i++ {
 		var vals []int
 		for j := 0; j < n-ta; j++ {
-			val := <- outs[j][i]
+			val := <-outs[j][i]
 			vals = append(vals, val)
 		}
 		for _, val := range vals {
@@ -141,7 +144,7 @@ func TestABADifferentValues(t *testing.T) {
 		}
 		thresholdCrypto := &thresholdCrypto{
 			keyShare: keyShares[i],
-			keyMeta: keyMeta,
+			keyMeta:  keyMeta,
 		}
 		outs[i] = make([]chan int, n)
 		for j := 0; j < n; j++ {
@@ -150,7 +153,7 @@ func TestABADifferentValues(t *testing.T) {
 		}
 	}
 	start := time.Now()
-	wg.Add((n-ta)*(n-ta))
+	wg.Add((n - ta) * (n - ta))
 	for i := 0; i < n-ta; i++ {
 		i := i
 		for j := 0; j < n-ta; j++ {
@@ -168,7 +171,7 @@ func TestABADifferentValues(t *testing.T) {
 	for i := 0; i < n-ta; i++ {
 		var vals []int
 		for j := 0; j < n-ta; j++ {
-			val := <- outs[j][i]
+			val := <-outs[j][i]
 			vals = append(vals, val)
 		}
 		for j, val := range vals {
