@@ -17,7 +17,12 @@ A block-agreement protocol for synchronous consensus.
 A committee-based terminating ACS protocol.
 
 ### Binary Agreement
-An asynchronous byzantine agreement protocol based on [Mostéfaoui et al](https://hal.inria.fr/hal-00944019v2/document). Ported from [Honey Badger BFT](https://github.com/initc3/HoneyBadgerBFT-Python/)
+An asynchronous byzantine agreement protocol based on [Mostéfaoui et al.](https://hal.inria.fr/hal-00944019v2/document) using a common coin based on threshold signatures ([Cachin et al.](https://allquantor.at/blockchainbib/pdf/cachin2000random.pdf)). Ported from [Honey Badger BFT](https://github.com/initc3/HoneyBadgerBFT-Python/)
 
 ### UPGRADE
 The top level protocol that combines all the above sub-protocols into a complete consensus protocol.
+
+#### Requirements
+```shell
+go get github.com/niclabs/tcrsa
+```
