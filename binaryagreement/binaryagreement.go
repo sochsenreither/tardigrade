@@ -9,20 +9,21 @@ import (
 
 	"github.com/niclabs/tcrsa"
 )
+
 // TODO: make receive blocking
 type BinaryAgreement struct {
-	n               int                     // Number of nodes
-	nodeId          int                     // Id of node
-	t               int                     // Number of maximum faulty nodes
-	value           int                     // Initial input
-	round           int                     // Current round
-	instance        int                     // Id of the current instance
-	coin            *CommonCoin             // Common coin for randomness
-	thresholdCrypto *thresholdCrypto        // Struct containing the secret key and key meta
-	multicast       func(msg *abaMessage)   // Function for multicasting
-	receive         func() chan *abaMessage // Blocking function for receiving messages
-	out             chan int                // Output channel
-	sync.Mutex                              // Lock
+	n               int                   // Number of nodes
+	nodeId          int                   // Id of node
+	t               int                   // Number of maximum faulty nodes
+	value           int                   // Initial input
+	round           int                   // Current round
+	instance        int                   // Id of the current instance
+	coin            *CommonCoin           // Common coin for randomness
+	thresholdCrypto *thresholdCrypto      // Struct containing the secret key and key meta
+	multicast       func(msg *abaMessage) // Function for multicasting
+	receive         func() *abaMessage    // Blocking function for receiving messages
+	out             chan int              // Output channel
+	sync.Mutex                            // Lock
 }
 
 type abaMessage struct {
@@ -37,7 +38,7 @@ type thresholdCrypto struct {
 	keyMeta  *tcrsa.KeyMeta
 }
 
-func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thresholdCrypto *thresholdCrypto, multicastFunc func(instance, round int, msg *abaMessage), receiveFunc func(instance, round int) chan *abaMessage, out chan int) *BinaryAgreement {
+func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thresholdCrypto *thresholdCrypto, multicastFunc func(nodeId, instance, round int, msg *abaMessage), receiveFunc func(nodeId, instance, round int) *abaMessage, out chan int) *BinaryAgreement {
 	aba := &BinaryAgreement{
 		n:               n,
 		nodeId:          nodeId,
@@ -53,10 +54,10 @@ func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thr
 	}
 
 	multicast := func(msg *abaMessage) {
-		multicastFunc(instance, aba.round, msg)
+		multicastFunc(aba.nodeId, instance, aba.round, msg)
 	}
-	receive := func() chan *abaMessage {
-		return receiveFunc(instance, aba.round)
+	receive := func() *abaMessage {
+		return receiveFunc(aba.nodeId, instance, aba.round)
 	}
 
 	aba.multicast = multicast
@@ -67,7 +68,6 @@ func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thr
 
 func (aba *BinaryAgreement) run() {
 	log.Println("Node", aba.nodeId, "with instance", aba.instance, "starting")
-	// TODO: check for data races. There shouldn't be any?
 	// Keep track of values received from broadcast. Maps round -> received values
 	binValues := make(map[int]map[int]bool)
 	// Keep track of received EST values. Maps round -> value -> nodes that sent this value
@@ -87,56 +87,51 @@ func (aba *BinaryAgreement) run() {
 
 	messageHandler := func() {
 		for {
-			select {
-			case <-termChan:
-				return
-			case m := <-aba.receive():
-				r, v, s := m.round, m.value, m.sender
-				switch m.status {
-				case "EST":
-					// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received EST from", s, "on", v)
-					handleBcs(r, v, s, estValues)
+			m := aba.receive()
+			r, v, s := m.round, m.value, m.sender
+			switch m.status {
+			case "EST":
+				// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received EST from", s, "on", v)
+				handleBcs(r, v, s, estValues)
 
-					// If a node received t+1 messages on value from distinct nodes, it multicasts this value (only once).
-					if len(estValues[r][v]) >= aba.t+1 {
-						//log.Println("Round", aba.round, "-",  aba.nodeId, "received t+1 ESTs")
-						aba.echoEST(r, v, aba.nodeId, estEchoes)
-					}
+				// If a node received t+1 messages on value from distinct nodes, it multicasts this value (only once).
+				if len(estValues[r][v]) >= aba.t+1 {
+					//log.Println("Round", aba.round, "-",  aba.nodeId, "received t+1 ESTs")
+					aba.echoEST(r, v, aba.nodeId, estEchoes)
+				}
 
-					// If a node received 2t+1 messages on value from distinct nodes, it adds this value to its binary value list.
-					if len(estValues[r][v]) >= 2*aba.t+1 {
-						if binValues[r] == nil {
-							binValues[r] = make(map[int]bool)
-						}
-						binValues[r][v] = true
-						aba.Lock()
-						if notifyEST[r] == nil {
-							notifyEST[r] = make(chan []int, 999)
-						}
-						aba.Unlock()
-						//log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received 2t+1 ESTs, updating values")
-						notifyEST[r] <- []int{v}
+				// If a node received 2t+1 messages on value from distinct nodes, it adds this value to its binary value list.
+				if len(estValues[r][v]) >= 2*aba.t+1 {
+					if binValues[r] == nil {
+						binValues[r] = make(map[int]bool)
 					}
-				case "AUX":
-					//log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received AUX from", s, "on", v)
-					handleBcs(r, v, s, auxValues)
+					binValues[r][v] = true
 					aba.Lock()
-					if notifyAUX[r] == nil {
-						notifyAUX[r] = make(chan []int, 999)
+					if notifyEST[r] == nil {
+						notifyEST[r] = make(chan []int, 999)
 					}
 					aba.Unlock()
+					//log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received 2t+1 ESTs, updating values")
+					notifyEST[r] <- []int{v}
+				}
+			case "AUX":
+				//log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received AUX from", s, "on", v)
+				handleBcs(r, v, s, auxValues)
+				aba.Lock()
+				if notifyAUX[r] == nil {
+					notifyAUX[r] = make(chan []int, 999)
+				}
+				aba.Unlock()
 
-					// If a node received n-t AUX messages on value(s) from distinct nodes, it can proceed in the algorithm. TODO: better description
-					if binValues[r][0] && len(auxValues[r][0]) >= aba.n-aba.t {
-						notifyAUX[r] <- []int{0}
-					}
-					if binValues[r][1] && len(auxValues[r][1]) >= aba.n-aba.t {
-						notifyAUX[r] <- []int{1}
-					}
-					if len(binValues[r]) == 2 && len(auxValues[r][0])+len(auxValues[r][1]) >= aba.n-aba.t {
-						notifyAUX[r] <- []int{0, 1}
-					}
-				default:
+				// If a node received n-t AUX messages on value(s) from distinct nodes, it can proceed in the algorithm. TODO: better description
+				if binValues[r][0] && len(auxValues[r][0]) >= aba.n-aba.t {
+					notifyAUX[r] <- []int{0}
+				}
+				if binValues[r][1] && len(auxValues[r][1]) >= aba.n-aba.t {
+					notifyAUX[r] <- []int{1}
+				}
+				if len(binValues[r]) == 2 && len(auxValues[r][0])+len(auxValues[r][1]) >= aba.n-aba.t {
+					notifyAUX[r] <- []int{0, 1}
 				}
 			}
 		}

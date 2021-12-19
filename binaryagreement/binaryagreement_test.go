@@ -8,8 +8,8 @@ import (
 )
 
 func TestABASameValue(t *testing.T) {
-	n := 8
-	ta := 2
+	n := 2
+	ta := 0
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
@@ -19,8 +19,9 @@ func TestABASameValue(t *testing.T) {
 	nodeChans := make(map[int]map[int][]chan *abaMessage) // round -> instance -> chans
 	outs := make(map[int][]chan int)
 
-	multicast := func(instance, round int, msg *abaMessage) {
+	multicast := func(id, instance, round int, msg *abaMessage) {
 		go func() {
+			var chans []chan *abaMessage
 			mu.Lock()
 			if nodeChans[round] == nil {
 				nodeChans[round] = make(map[int][]chan *abaMessage)
@@ -31,31 +32,35 @@ func TestABASameValue(t *testing.T) {
 					nodeChans[round][instance][i] = make(chan *abaMessage, 99*n)
 				}
 			}
-			//time.Sleep(time.Duration(rand.Intn(30) * int(time.Millisecond)))
+			// Set channels to send to to different variable in order to prevent data/lock races
+			chans = append(chans, nodeChans[round][instance]...)
 			mu.Unlock()
-			for _, node := range nodeChans[round][instance] {
-				node <- msg
+			for i := 0; i < len(chans); i++ {
+				chans[i] <- msg
 			}
 		}()
+	}
+	receive := func(id, instance, round int) *abaMessage {
+		// If channels for round or instance don't exist create them first
+		mu.Lock()
+		if nodeChans[round] == nil {
+			nodeChans[round] = make(map[int][]chan *abaMessage)
+		}
+		if len(nodeChans[round][instance]) != n {
+			nodeChans[round][instance] = make([]chan *abaMessage, n)
+			for k := 0; k < n; k++ {
+				nodeChans[round][instance][k] = make(chan *abaMessage, 99*n)
+			}
+		}
+		// Set receive channel to separate variable in order to prevent data/lock races
+		ch := nodeChans[round][instance][id]
+		mu.Unlock()
+		val := <-ch
+		return val
 	}
 
 	for i := 0; i < n; i++ {
 		i := i
-		receive := func(instance, round int) chan *abaMessage {
-			// If channels for round or instance don't exist create them first
-			mu.Lock()
-			if nodeChans[round] == nil {
-				nodeChans[round] = make(map[int][]chan *abaMessage)
-			}
-			if len(nodeChans[round][instance]) != n {
-				nodeChans[round][instance] = make([]chan *abaMessage, n)
-				for k := 0; k < n; k++ {
-					nodeChans[round][instance][k] = make(chan *abaMessage, 99*n)
-				}
-			}
-			mu.Unlock()
-			return nodeChans[round][instance][i]
-		}
 		thresholdCrypto := &thresholdCrypto{
 			keyShare: keyShares[i],
 			keyMeta:  keyMeta,
@@ -108,40 +113,48 @@ func TestABADifferentValues(t *testing.T) {
 	nodeChans := make(map[int]map[int][]chan *abaMessage) // round -> instance -> chans
 	outs := make(map[int][]chan int)
 
-	multicast := func(instance, round int, msg *abaMessage) {
-		mu.Lock()
-		if nodeChans[round] == nil {
-			nodeChans[round] = make(map[int][]chan *abaMessage)
-		}
-		if len(nodeChans[round][instance]) != n {
-			nodeChans[round][instance] = make([]chan *abaMessage, n)
-			for i := 0; i < n; i++ {
-				nodeChans[round][instance][i] = make(chan *abaMessage, 99*n)
-			}
-		}
-		mu.Unlock()
-		for _, node := range nodeChans[round][instance] {
-			node <- msg
-		}
-	}
-
-	for i := 0; i < n; i++ {
-		i := i
-		receive := func(instance, round int) chan *abaMessage {
-			// If channels for round or instance don't exist create them first
+	multicast := func(id, instance, round int, msg *abaMessage) {
+		go func() {
+			var chans []chan *abaMessage
 			mu.Lock()
 			if nodeChans[round] == nil {
 				nodeChans[round] = make(map[int][]chan *abaMessage)
 			}
 			if len(nodeChans[round][instance]) != n {
 				nodeChans[round][instance] = make([]chan *abaMessage, n)
-				for k := 0; k < n; k++ {
-					nodeChans[round][instance][k] = make(chan *abaMessage, 99*n)
+				for i := 0; i < n; i++ {
+					nodeChans[round][instance][i] = make(chan *abaMessage, 99*n)
 				}
 			}
+			// Set channels to send to to different variable in order to prevent data/lock races
+			chans = append(chans, nodeChans[round][instance]...)
 			mu.Unlock()
-			return nodeChans[round][instance][i]
+			for _, ch := range chans {
+				ch <- msg
+			}
+		}()
+	}
+	receive := func(id, instance, round int) *abaMessage {
+		// If channels for round or instance don't exist create them first
+		mu.Lock()
+		if nodeChans[round] == nil {
+			nodeChans[round] = make(map[int][]chan *abaMessage)
 		}
+		if len(nodeChans[round][instance]) != n {
+			nodeChans[round][instance] = make([]chan *abaMessage, n)
+			for k := 0; k < n; k++ {
+				nodeChans[round][instance][k] = make(chan *abaMessage, 99*n)
+			}
+		}
+		// Set receive channel to separate variable in order to prevent data/lock races
+		ch := nodeChans[round][instance][id]
+		mu.Unlock()
+		val := <-ch
+		return val
+	}
+
+	for i := 0; i < n; i++ {
+		i := i
 		thresholdCrypto := &thresholdCrypto{
 			keyShare: keyShares[i],
 			keyMeta:  keyMeta,

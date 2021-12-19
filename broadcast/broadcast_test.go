@@ -122,6 +122,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 
 	multicast := func(id, instance, round int, msg *message) {
 		go func() {
+			var chans []chan *message
 			// If channels for round or instance don't exist create them first
 			mu.Lock()
 			if nodeChans[round] == nil {
@@ -133,18 +134,20 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 					nodeChans[round][instance][i] = make(chan *message, 999*n)
 				}
 			}
+			// Set channels to send to to different variable in order to prevent data/lock races
+			chans = append(chans, nodeChans[round][instance]...)
 			mu.Unlock()
 
 			switch msg.paylaod.(type) {
 			case *sMessage:
-				for i, node := range nodeChans[round][instance] {
+				for i, ch := range chans {
 					if committee[i] {
-						node <- msg
+						ch <- msg
 					}
 				}
 			default:
-				for _, node := range nodeChans[round][instance] {
-					node <- msg
+				for _, ch := range chans {
+					ch <- msg
 				}
 			}
 		}()
@@ -161,8 +164,10 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 				nodeChans[round][instance][k] = make(chan *message, 999*n)
 			}
 		}
+		// Set receive channel to separate variable in order to prevent data/lock races
+		ch := nodeChans[round][instance][id]
 		mu.Unlock()
-		val := <-nodeChans[round][instance][id]
+		val := <-ch
 		return val
 	}
 
@@ -194,7 +199,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 		}
 	}
 	start := time.Now()
-	wg.Add((n-ta)*(n-ta))
+	wg.Add((n - ta) * (n - ta))
 	for i := 0; i < n-ta; i++ {
 		i := i
 		for j := 0; j < n; j++ {
@@ -210,7 +215,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 
 	for i := 0; i < n-ta; i++ {
 		for j := 0; j < n-ta; j++ {
-			val := <- broadcasts[i][j].out
+			val := <-broadcasts[i][j].out
 			if !bytes.Equal(val, inputs[broadcasts[i][j].senderId]) {
 				t.Errorf("Expected %q, got %q", inputs[broadcasts[i][j].senderId], val)
 			}
