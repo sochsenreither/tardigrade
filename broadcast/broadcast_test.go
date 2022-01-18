@@ -28,17 +28,17 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 
 	committee := make(map[int]bool)
 	outs := make([]chan []byte, n)
-	nodeChans := make(map[int]chan *message) // maps node -> message channel
+	nodeChans := make(map[int]chan *Message) // maps node -> message channel
 	broadcasts := make([]*ReliableBroadcast, n)
 	keyShares, keyMeta := setupKeys(n + 1)
 
 	committee[0] = true
 	committee[1] = true
 
-	multicast := func(id, instance, round int, msg *message) {
+	multicast := func(id, instance, round int, msg *Message) {
 		go func() {
-			switch msg.paylaod.(type) {
-			case *sMessage:
+			switch msg.Payload.(type) {
+			case *SMessage:
 				for k, node := range nodeChans {
 					if committee[k] {
 						node <- msg
@@ -51,7 +51,7 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 			}
 		}()
 	}
-	receive := func(id, instance, round int) *message {
+	receive := func(id, instance, round int) *Message {
 		val := <-nodeChans[id]
 		return val
 	}
@@ -62,20 +62,20 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 		paddedHash, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 		sig, _ := keyShares[len(keyShares)-1].Sign(paddedHash, crypto.SHA256, keyMeta)
 		signature := &Signature{
-			sig:     sig,
-			keyMeta: keyMeta,
+			SigShare:     sig,
+			KeyMeta: keyMeta,
 		}
 		config := &ReliableBroadcastConfig{
-			n:        n,
-			nodeId:   i,
-			t:        ta,
-			kappa:    1,
-			epsilon:  0,
-			senderId: 0,
-			round:    0,
+			N:        n,
+			NodeId:   i,
+			T:        ta,
+			Kappa:    1,
+			Epsilon:  0,
+			SenderId: 0,
+			Round:    0,
 		}
 		outs[i] = make(chan []byte, 99)
-		nodeChans[i] = make(chan *message, 999)
+		nodeChans[i] = make(chan *Message, 999)
 		broadcasts[i] = NewReliableBroadcast(config, committee, outs[i], signature, multicast, receive)
 	}
 	input := []byte("foo")
@@ -87,14 +87,14 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 		i := i
 		go func() {
 			defer wg.Done()
-			broadcasts[i].run()
+			broadcasts[i].Run()
 		}()
 	}
 	wg.Wait()
 	fmt.Println("Execution time:", time.Since(start))
 
 	for i := 0; i < n-ta; i++ {
-		val := <-outs[i]
+		val := broadcasts[i].GetValue()
 		if !bytes.Equal(val, input) {
 			t.Errorf("Expected %s, got %s from node %d", string(input), string(val), i)
 		}
@@ -113,33 +113,33 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 	var mu sync.Mutex
 	inputs := [4][]byte{[]byte("zero"), []byte("one"), []byte("two"), []byte("three")}
 	outs := make(map[int][]chan []byte)
-	nodeChans := make(map[int]map[int][]chan *message) // maps round -> instance -> chans
+	nodeChans := make(map[int]map[int][]chan *Message) // maps round -> instance -> chans
 	broadcasts := make(map[int][]*ReliableBroadcast)
 	keyShares, keyMeta := setupKeys(n + 1)
 	committee := make(map[int]bool)
 	committee[0] = true
 	committee[1] = true
 
-	multicast := func(id, instance, round int, msg *message) {
+	multicast := func(id, instance, round int, msg *Message) {
 		go func() {
-			var chans []chan *message
+			var chans []chan *Message
 			// If channels for round or instance don't exist create them first
 			mu.Lock()
 			if nodeChans[round] == nil {
-				nodeChans[round] = make(map[int][]chan *message)
+				nodeChans[round] = make(map[int][]chan *Message)
 			}
 			if len(nodeChans[round][instance]) != n {
-				nodeChans[round][instance] = make([]chan *message, n)
+				nodeChans[round][instance] = make([]chan *Message, n)
 				for i := 0; i < n; i++ {
-					nodeChans[round][instance][i] = make(chan *message, 999*n)
+					nodeChans[round][instance][i] = make(chan *Message, 999*n)
 				}
 			}
 			// Set channels to send to to different variable in order to prevent data/lock races
 			chans = append(chans, nodeChans[round][instance]...)
 			mu.Unlock()
 
-			switch msg.paylaod.(type) {
-			case *sMessage:
+			switch msg.Payload.(type) {
+			case *SMessage:
 				for i, ch := range chans {
 					if committee[i] {
 						ch <- msg
@@ -152,16 +152,16 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 			}
 		}()
 	}
-	receive := func(id, instance, round int) *message {
+	receive := func(id, instance, round int) *Message {
 		// If channels for round or instance don't exist create them first
 		mu.Lock()
 		if nodeChans[round] == nil {
-			nodeChans[round] = make(map[int][]chan *message)
+			nodeChans[round] = make(map[int][]chan *Message)
 		}
 		if len(nodeChans[round][instance]) != n {
-			nodeChans[round][instance] = make([]chan *message, n)
+			nodeChans[round][instance] = make([]chan *Message, n)
 			for k := 0; k < n; k++ {
-				nodeChans[round][instance][k] = make(chan *message, 999*n)
+				nodeChans[round][instance][k] = make(chan *Message, 999*n)
 			}
 		}
 		// Set receive channel to separate variable in order to prevent data/lock races
@@ -177,19 +177,19 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 		paddedHash, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 		sig, _ := keyShares[len(keyShares)-1].Sign(paddedHash, crypto.SHA256, keyMeta)
 		signature := &Signature{
-			sig:     sig,
-			keyMeta: keyMeta,
+			SigShare:     sig,
+			KeyMeta: keyMeta,
 		}
 		outs[i] = make([]chan []byte, n)
 		for j := 0; j < n; j++ {
 			config := &ReliableBroadcastConfig{
-				n:        n,
-				nodeId:   i,
-				t:        ta,
-				kappa:    1,
-				epsilon:  0,
-				senderId: j,
-				round:    0,
+				N:        n,
+				NodeId:   i,
+				T:        ta,
+				Kappa:    1,
+				Epsilon:  0,
+				SenderId: j,
+				Round:    0,
 			}
 			outs[i][j] = make(chan []byte, 100)
 			broadcasts[i] = append(broadcasts[i], NewReliableBroadcast(config, committee, outs[i][j], signature, multicast, receive))
@@ -206,7 +206,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 			j := j
 			go func() {
 				defer wg.Done()
-				broadcasts[i][j].run()
+				broadcasts[i][j].Run()
 			}()
 		}
 	}
@@ -215,7 +215,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 
 	for i := 0; i < n-ta; i++ {
 		for j := 0; j < n-ta; j++ {
-			val := <-broadcasts[i][j].out
+			val := broadcasts[i][j].GetValue()
 			if !bytes.Equal(val, inputs[broadcasts[i][j].senderId]) {
 				t.Errorf("Expected %q, got %q", inputs[broadcasts[i][j].senderId], val)
 			}

@@ -16,20 +16,20 @@ func TestABASameValue(t *testing.T) {
 	keyShares, keyMeta, coin := setup(n)
 
 	abas := make(map[int][]*BinaryAgreement)
-	nodeChans := make(map[int]map[int][]chan *abaMessage) // round -> instance -> chans
+	nodeChans := make(map[int]map[int][]chan *AbaMessage) // round -> instance -> chans
 	outs := make(map[int][]chan int)
 
-	multicast := func(id, instance, round int, msg *abaMessage) {
+	multicast := func(id, instance, round int, msg *AbaMessage) {
 		go func() {
-			var chans []chan *abaMessage
+			var chans []chan *AbaMessage
 			mu.Lock()
 			if nodeChans[round] == nil {
-				nodeChans[round] = make(map[int][]chan *abaMessage)
+				nodeChans[round] = make(map[int][]chan *AbaMessage)
 			}
 			if len(nodeChans[round][instance]) != n {
-				nodeChans[round][instance] = make([]chan *abaMessage, n)
+				nodeChans[round][instance] = make([]chan *AbaMessage, n)
 				for i := 0; i < n; i++ {
-					nodeChans[round][instance][i] = make(chan *abaMessage, 99*n)
+					nodeChans[round][instance][i] = make(chan *AbaMessage, 99*n)
 				}
 			}
 			// Set channels to send to to different variable in order to prevent data/lock races
@@ -40,16 +40,16 @@ func TestABASameValue(t *testing.T) {
 			}
 		}()
 	}
-	receive := func(id, instance, round int) *abaMessage {
+	receive := func(id, instance, round int) *AbaMessage {
 		// If channels for round or instance don't exist create them first
 		mu.Lock()
 		if nodeChans[round] == nil {
-			nodeChans[round] = make(map[int][]chan *abaMessage)
+			nodeChans[round] = make(map[int][]chan *AbaMessage)
 		}
 		if len(nodeChans[round][instance]) != n {
-			nodeChans[round][instance] = make([]chan *abaMessage, n)
+			nodeChans[round][instance] = make([]chan *AbaMessage, n)
 			for k := 0; k < n; k++ {
-				nodeChans[round][instance][k] = make(chan *abaMessage, 99*n)
+				nodeChans[round][instance][k] = make(chan *AbaMessage, 99*n)
 			}
 		}
 		// Set receive channel to separate variable in order to prevent data/lock races
@@ -61,9 +61,9 @@ func TestABASameValue(t *testing.T) {
 
 	for i := 0; i < n; i++ {
 		i := i
-		thresholdCrypto := &thresholdCrypto{
-			keyShare: keyShares[i],
-			keyMeta:  keyMeta,
+		thresholdCrypto := &ThresholdCrypto{
+			KeyShare: keyShares[i],
+			KeyMeta:  keyMeta,
 		}
 		outs[i] = make([]chan int, n)
 		for j := 0; j < n; j++ {
@@ -79,7 +79,7 @@ func TestABASameValue(t *testing.T) {
 			j := j
 			go func() {
 				defer wg.Done()
-				abas[i][j].run()
+				abas[i][j].Run()
 			}()
 		}
 	}
@@ -90,7 +90,7 @@ func TestABASameValue(t *testing.T) {
 	for i := 0; i < n-ta; i++ {
 		var vals []int
 		for j := 0; j < n-ta; j++ {
-			val := <-outs[j][i]
+			val := abas[j][i].GetValue()
 			vals = append(vals, val)
 		}
 		for _, val := range vals {
@@ -102,28 +102,28 @@ func TestABASameValue(t *testing.T) {
 }
 
 func TestABADifferentValues(t *testing.T) {
-	n := 8
-	ta := 2
+	n := 4
+	ta := 1
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
 	keyShares, keyMeta, coin := setup(n)
 
 	abas := make(map[int][]*BinaryAgreement)
-	nodeChans := make(map[int]map[int][]chan *abaMessage) // round -> instance -> chans
+	nodeChans := make(map[int]map[int][]chan *AbaMessage) // round -> instance -> chans
 	outs := make(map[int][]chan int)
 
-	multicast := func(id, instance, round int, msg *abaMessage) {
+	multicast := func(id, instance, round int, msg *AbaMessage) {
 		go func() {
-			var chans []chan *abaMessage
+			var chans []chan *AbaMessage
 			mu.Lock()
 			if nodeChans[round] == nil {
-				nodeChans[round] = make(map[int][]chan *abaMessage)
+				nodeChans[round] = make(map[int][]chan *AbaMessage)
 			}
 			if len(nodeChans[round][instance]) != n {
-				nodeChans[round][instance] = make([]chan *abaMessage, n)
+				nodeChans[round][instance] = make([]chan *AbaMessage, n)
 				for i := 0; i < n; i++ {
-					nodeChans[round][instance][i] = make(chan *abaMessage, 99*n)
+					nodeChans[round][instance][i] = make(chan *AbaMessage, 99*n)
 				}
 			}
 			// Set channels to send to to different variable in order to prevent data/lock races
@@ -134,16 +134,16 @@ func TestABADifferentValues(t *testing.T) {
 			}
 		}()
 	}
-	receive := func(id, instance, round int) *abaMessage {
+	receive := func(id, instance, round int) *AbaMessage {
 		// If channels for round or instance don't exist create them first
 		mu.Lock()
 		if nodeChans[round] == nil {
-			nodeChans[round] = make(map[int][]chan *abaMessage)
+			nodeChans[round] = make(map[int][]chan *AbaMessage)
 		}
 		if len(nodeChans[round][instance]) != n {
-			nodeChans[round][instance] = make([]chan *abaMessage, n)
+			nodeChans[round][instance] = make([]chan *AbaMessage, n)
 			for k := 0; k < n; k++ {
-				nodeChans[round][instance][k] = make(chan *abaMessage, 99*n)
+				nodeChans[round][instance][k] = make(chan *AbaMessage, 99*n)
 			}
 		}
 		// Set receive channel to separate variable in order to prevent data/lock races
@@ -155,9 +155,9 @@ func TestABADifferentValues(t *testing.T) {
 
 	for i := 0; i < n; i++ {
 		i := i
-		thresholdCrypto := &thresholdCrypto{
-			keyShare: keyShares[i],
-			keyMeta:  keyMeta,
+		thresholdCrypto := &ThresholdCrypto{
+			KeyShare: keyShares[i],
+			KeyMeta:  keyMeta,
 		}
 		outs[i] = make([]chan int, n)
 		for j := 0; j < n; j++ {
@@ -173,7 +173,7 @@ func TestABADifferentValues(t *testing.T) {
 			j := j
 			go func() {
 				defer wg.Done()
-				abas[i][j].run()
+				abas[i][j].Run()
 			}()
 		}
 	}
@@ -184,7 +184,7 @@ func TestABADifferentValues(t *testing.T) {
 	for i := 0; i < n-ta; i++ {
 		var vals []int
 		for j := 0; j < n-ta; j++ {
-			val := <-outs[j][i]
+			val := abas[j][i].GetValue()
 			vals = append(vals, val)
 		}
 		for j, val := range vals {

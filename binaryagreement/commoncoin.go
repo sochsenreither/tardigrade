@@ -4,7 +4,7 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
-	"log"
+	// "log"
 	"strconv"
 
 	"github.com/niclabs/tcrsa"
@@ -13,10 +13,10 @@ import (
 type CommonCoin struct {
 	n           int               // Number of nodes
 	keyMeta     *tcrsa.KeyMeta    // PKI
-	RequestChan chan *coinRequest // Channel to receive requests
+	RequestChan chan *CoinRequest // Channel to receive requests
 }
 
-type coinRequest struct {
+type CoinRequest struct {
 	sender int
 	round  int
 	sig    *tcrsa.SigShare
@@ -24,7 +24,7 @@ type coinRequest struct {
 	instance int
 }
 
-func NewCommonCoin(n int, keyMeta *tcrsa.KeyMeta, requestChannel chan *coinRequest) *CommonCoin {
+func NewCommonCoin(n int, keyMeta *tcrsa.KeyMeta, requestChannel chan *CoinRequest) *CommonCoin {
 	coin := &CommonCoin{
 		n:           n,
 		keyMeta:     keyMeta,
@@ -33,9 +33,9 @@ func NewCommonCoin(n int, keyMeta *tcrsa.KeyMeta, requestChannel chan *coinReque
 	return coin
 }
 
-func (cc *CommonCoin) run() {
+func (cc *CommonCoin) Run() {
 	// Maps from round -> instance -> nodeId
-	received := make(map[int]map[int]map[int]*coinRequest)
+	received := make(map[int]map[int]map[int]*CoinRequest)
 	alreadySent := make(map[int]map[int]bool)
 	coinVals := make(map[int]byte)
 
@@ -46,14 +46,14 @@ func (cc *CommonCoin) run() {
 
 		// Create a new map the first time a request from a new round comes in
 		if received[round] == nil {
-			received[round] = make(map[int]map[int]*coinRequest)
+			received[round] = make(map[int]map[int]*CoinRequest)
 		}
 		if alreadySent[round] == nil {
 			alreadySent[round] = make(map[int]bool)
 		}
 
 		if received[round][instance] == nil {
-			received[round][instance] = make(map[int]*coinRequest)
+			received[round][instance] = make(map[int]*CoinRequest)
 		}
 		received[round][instance][sender] = request
 
@@ -61,12 +61,12 @@ func (cc *CommonCoin) run() {
 		h := sha256.Sum256([]byte(strconv.Itoa(round)))
 		hash, err := tcrsa.PrepareDocumentHash(cc.keyMeta.PublicKey.Size(), crypto.SHA256, h[:])
 		if err != nil {
-			log.Println("Common coin failed to create hash for round", round, err)
+			// log.Println("Common coin failed to create hash for round", round, err)
 		}
 
 		// Verify if the received signature share is valid
 		if err := request.sig.Verify(hash, cc.keyMeta); err != nil {
-			log.Print("Common coin couldn't verify signature share from node", sender)
+			// log.Print("Common coin couldn't verify signature share from node", sender)
 			continue
 		}
 
@@ -77,19 +77,19 @@ func (cc *CommonCoin) run() {
 				request.answer <- coinVals[round]
 			} else {
 				// Combine all received signature shares to a certificate
-				log.Println("Creating certificate in round", round)
+				// log.Println("Creating certificate in round", round)
 				var sigShares tcrsa.SigShareList
 				for _, req := range received[round][instance] {
 					sigShares = append(sigShares, req.sig)
 				}
 				certificate, err := sigShares.Join(hash, cc.keyMeta)
 				if err != nil {
-					log.Println("Common coin failed to create a certificate for round", round)
+					// log.Println("Common coin failed to create a certificate for round", round)
 					continue
 				}
 				err = rsa.VerifyPKCS1v15(cc.keyMeta.PublicKey, crypto.SHA256, h[:], certificate)
 				if err != nil {
-					log.Println("Common coin failed to verfiy created certificate for round", round)
+					// log.Println("Common coin failed to verfiy created certificate for round", round)
 				}
 
 				// Compute the hash of the certificate, take the least significant bit and use that as coin.
