@@ -1,6 +1,7 @@
 package commonsubset
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/sha256"
 	"fmt"
@@ -96,6 +97,110 @@ func TestACSSameValue(t *testing.T) {
 	}
 	wg.Wait()
 	fmt.Println("Execution time:", time.Since(start))
+
+	for i := 0; i < n; i++ {
+		got := acs[i].getValue()[0]
+		expected := inputs[i]
+		if !bytes.Equal(got, expected) {
+			t.Errorf("Got %d, expected %d", got, expected)
+		}
+	}
+}
+
+func TestACSDifferentValues(t *testing.T) {
+	n := 4
+	ta := 0
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	keyShares, keyMeta, coin := setupKeys(n)
+	committee := make(map[int]bool)
+	committee[0] = true
+	committee[1] = true
+	committee[2] = true
+	inputs := [4][]byte{[]byte("zero"), []byte("two"), []byte("three"), []byte("four")}
+
+	abas := setupAba(n, ta, keyShares, keyMeta, coin, &mu)
+	rbcs := setupRbc(n, ta, keyShares, keyMeta, coin, &mu, inputs[:], committee)
+
+	outs := make(map[int]chan [][]byte)
+	nodeChans := make(map[int][]chan *message) // round -> chans
+	acs := make(map[int]*CommonSubset)
+
+	multicast := func(id, round int, msg *message) {
+		go func() {
+			var chans []chan *message
+			mu.Lock()
+			if nodeChans[round] == nil {
+				nodeChans[round] = make([]chan *message, n)
+				for i := 0; i < n; i++ {
+					nodeChans[round][i] = make(chan *message, 9999*n)
+				}
+			}
+			// Set channels to send to to different variable in order to prevent data/lock races
+			chans = append(chans, nodeChans[round]...)
+			mu.Unlock()
+			for i := 0; i < n; i++ {
+				chans[i] <- msg
+			}
+		}()
+	}
+
+	receive := func(id, round int) *message {
+		mu.Lock()
+		if nodeChans[round] == nil {
+			nodeChans[round] = make([]chan *message, n)
+			for i := 0; i < n; i++ {
+				nodeChans[round][i] = make(chan *message, 9999*n)
+			}
+		}
+		ch := nodeChans[round][id]
+		mu.Unlock()
+		val := <-ch
+		return val
+	}
+
+	for i := 0; i < n; i++ {
+		tc := &ThresholdCrypto{
+			KeyShare: keyShares[i],
+			KeyMeta: keyMeta,
+			SigShare: rbcs[i][0].Sig.SigShare,
+		}
+		cfg := &ACSConfig{
+				N:        n,
+				NodeId:   i,
+				T:        ta,
+				Kappa:    1,
+				Epsilon:  0,
+				Round:    0,
+			}
+		outs[i] = make(chan [][]byte, 100)
+		acs[i] = NewACS(cfg, committee, inputs[i], outs[i], rbcs[i], abas[i], tc, multicast, receive)
+	}
+
+	start := time.Now()
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		i := i
+		go func() {
+			defer wg.Done()
+			acs[i].Run()
+		}()
+	}
+	wg.Wait()
+	fmt.Println("Execution time:", time.Since(start))
+
+	for i := 0; i < n; i++ {
+		got := acs[i].getValue()
+		if len(got) != len(inputs) {
+			t.Errorf("Got output that doesn't match input")
+		}
+		for i := 0; i < len(got); i++ {
+			if !bytes.Equal(got[i], inputs[i]) {
+				t.Errorf("Got output that doesn't match input")
+			}
+		}
+	}
 }
 
 func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, mu *sync.Mutex) map[int][]*aba.BinaryAgreement {

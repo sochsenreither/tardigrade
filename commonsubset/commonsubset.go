@@ -121,7 +121,6 @@ func (acs *CommonSubset) Run() {
 	messageHandler := func() {
 		for {
 			m := acs.receive()
-			log.Printf("Node %d received message from %d", acs.nodeId, m.sender)
 			messageChan <- m
 		}
 	}
@@ -236,7 +235,6 @@ func (acs *CommonSubset) cOne(rbcVals map[int][]byte) (bool, []byte) {
 	// TODO: bad runtime
 	for _, v := range rbcVals {
 		if acs.cOneHelper(v, rbcVals) {
-			log.Printf("Node %d: Condition C1 is true", acs.nodeId)
 			return true, v
 		}
 	}
@@ -269,7 +267,6 @@ func (acs *CommonSubset) cTwo(rbcVals map[int][]byte, s map[int]bool, abaFinishe
 
 	for _, v := range rbcVals {
 		if acs.cTwoHelper(v, rbcVals, s, abaFinished) {
-			log.Printf("Node %d: Condition C2 is true", acs.nodeId)
 			return true, v
 		}
 	}
@@ -292,6 +289,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int][]byte, s map[int]bool, ab
 
 	bOne, vOne := acs.cOne(rbcVals)
 	if bOne && !*commit {
+		log.Printf("Node %d: Condition C1 is true", acs.nodeId)
 		*commit = true
 		out := [][]byte{vOne}
 		acsOut <- out
@@ -303,6 +301,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int][]byte, s map[int]bool, ab
 
 	bTwo, vTwo := acs.cTwo(rbcVals, s, abaFinished)
 	if bTwo && !*commit {
+		log.Printf("Node %d: Condition C2 is true", acs.nodeId)
 		*commit = true
 		out := [][]byte{vTwo}
 		acsOut <- out
@@ -313,10 +312,11 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int][]byte, s map[int]bool, ab
 	}
 	bThree := acs.cThree(rbcVals, s, abaFinished)
 	if bThree && !*commit {
+		log.Printf("Node %d: Condition C3 is true", acs.nodeId)
 		*commit = true
 		var outputs [][]byte
-		for i, b := range s {
-			if b {
+		for i := 0; i < acs.n; i++ {
+			if s[i] {
 				outputs = append(outputs, rbcVals[i])
 			}
 		}
@@ -468,6 +468,7 @@ func (acs *CommonSubset) isValidSignature(m *acsCommitteeMessage) bool {
 	return true
 }
 
+// canTerminate returns whether the termination conditions are met.
 func (acs *CommonSubset) canTerminate(acsFinished [][]byte, signature tcrsa.Signature, receivedHash []byte) bool {
 	if acsFinished == nil || signature == nil || receivedHash == nil {
 		return false
@@ -475,4 +476,9 @@ func (acs *CommonSubset) canTerminate(acsFinished [][]byte, signature tcrsa.Sign
 	hash := acs.hashValues(acsFinished)
 
 	return bytes.Equal(hash[:], receivedHash)
+}
+
+// getValue returns the output of the acs protocol (blocking)
+func (acs *CommonSubset) getValue() [][]byte {
+	return <-acs.out
 }
