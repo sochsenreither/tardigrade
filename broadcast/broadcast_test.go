@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 func setupKeys(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta) {
@@ -21,21 +22,32 @@ func setupKeys(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta) {
 	return keyShares, keyMeta
 }
 
+func setupBlockShare(n, i int, mes []byte, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta) *utils.BlockShare {
+	preBlock := utils.NewPreBlock(n)
+	preBlocKMessage, _ := utils.NewPreBlockMessage(mes, keyShare, keyMeta)
+	preBlock.AddMessage(i, preBlocKMessage)
+	preBlockHash := preBlock.Hash()
+	// for now the signature isn't relevant, since this gets checked in the main protocol
+	blockPointer := utils.NewBlockPointer(preBlockHash[:], []byte{0})
+	blockShare := utils.NewBlockShare(preBlock, blockPointer)
+	return blockShare
+}
+
 func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 	n := 4
 	ta := 1
 	var wg sync.WaitGroup
 
 	committee := make(map[int]bool)
-	outs := make([]chan []byte, n)
-	nodeChans := make(map[int]chan *Message) // maps node -> message channel
+	outs := make([]chan *utils.BlockShare, n)
+	nodeChans := make(map[int]chan *utils.Message) // maps node -> message channel
 	broadcasts := make([]*ReliableBroadcast, n)
 	keyShares, keyMeta := setupKeys(n + 1)
 
 	committee[0] = true
 	committee[1] = true
 
-	multicast := func(id, instance, round int, msg *Message) {
+	multicast := func(id, instance, round int, msg *utils.Message) {
 		go func() {
 			switch msg.Payload.(type) {
 			case *SMessage:
@@ -51,7 +63,7 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 			}
 		}()
 	}
-	receive := func(id, instance, round int) *Message {
+	receive := func(id, instance, round int) *utils.Message {
 		val := <-nodeChans[id]
 		return val
 	}
@@ -74,12 +86,14 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 			SenderId: 0,
 			Round:    0,
 		}
-		outs[i] = make(chan []byte, 99)
-		nodeChans[i] = make(chan *Message, 999)
+		outs[i] = make(chan *utils.BlockShare, 99)
+		nodeChans[i] = make(chan *utils.Message, 999)
 		broadcasts[i] = NewReliableBroadcast(config, committee, outs[i], signature, multicast, receive)
 	}
-	input := []byte("foo")
-	broadcasts[0].SetValue(input)
+	// create message with signature of node 0.
+	mes := []byte("foo")
+	blockShare := setupBlockShare(n, 0, mes, keyShares[0], keyMeta)
+	broadcasts[0].SetValue(blockShare)
 
 	start := time.Now()
 	wg.Add(n - ta)
@@ -95,14 +109,14 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 
 	for i := 0; i < n-ta; i++ {
 		val := broadcasts[i].GetValue()
-		if !bytes.Equal(val, input) {
-			t.Errorf("Expected %s, got %s from node %d", string(input), string(val), i)
+		if !bytes.Equal(val.Block.Vec[0].Message, mes) {
+			t.Errorf("Expected %s, got %s from node %d", string(mes), string(val.Block.Vec[0].Message), i)
 		}
 	}
 }
 
 func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
-	// Scenario: Four honest nodes, one byzantine . Every node has a different initial input value.
+	// Scenario: Four honest nodes, one byzantine. Every node has a different initial input value.
 	// Every node runs four instances of broadcast, one instance as sender. Every broadcast run in
 	// one instance should output the same value. (The last instance doesn't output anything, since
 	// the sender is byzantine. The test should still terminate and every other instance should be
@@ -112,26 +126,31 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	inputs := [4][]byte{[]byte("zero"), []byte("one"), []byte("two"), []byte("three")}
-	outs := make(map[int][]chan []byte)
-	nodeChans := make(map[int]map[int][]chan *Message) // maps round -> instance -> chans
+	outs := make(map[int][]chan *utils.BlockShare)
+	nodeChans := make(map[int]map[int][]chan *utils.Message) // maps round -> instance -> chans
 	broadcasts := make(map[int][]*ReliableBroadcast)
 	keyShares, keyMeta := setupKeys(n + 1)
 	committee := make(map[int]bool)
 	committee[0] = true
 	committee[1] = true
+	var blockShares []*utils.BlockShare
+	for i := 0; i < n; i++ {
+		blockShares = append(blockShares, setupBlockShare(n, i, inputs[i], keyShares[i], keyMeta))
+	}
 
-	multicast := func(id, instance, round int, msg *Message) {
+
+	multicast := func(id, instance, round int, msg *utils.Message) {
 		go func() {
-			var chans []chan *Message
+			var chans []chan *utils.Message
 			// If channels for round or instance don't exist create them first
 			mu.Lock()
 			if nodeChans[round] == nil {
-				nodeChans[round] = make(map[int][]chan *Message)
+				nodeChans[round] = make(map[int][]chan *utils.Message)
 			}
 			if len(nodeChans[round][instance]) != n {
-				nodeChans[round][instance] = make([]chan *Message, n)
+				nodeChans[round][instance] = make([]chan *utils.Message, n)
 				for i := 0; i < n; i++ {
-					nodeChans[round][instance][i] = make(chan *Message, 999*n)
+					nodeChans[round][instance][i] = make(chan *utils.Message, 999*n)
 				}
 			}
 			// Set channels to send to to different variable in order to prevent data/lock races
@@ -152,16 +171,16 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 			}
 		}()
 	}
-	receive := func(id, instance, round int) *Message {
+	receive := func(id, instance, round int) *utils.Message {
 		// If channels for round or instance don't exist create them first
 		mu.Lock()
 		if nodeChans[round] == nil {
-			nodeChans[round] = make(map[int][]chan *Message)
+			nodeChans[round] = make(map[int][]chan *utils.Message)
 		}
 		if len(nodeChans[round][instance]) != n {
-			nodeChans[round][instance] = make([]chan *Message, n)
+			nodeChans[round][instance] = make([]chan *utils.Message, n)
 			for k := 0; k < n; k++ {
-				nodeChans[round][instance][k] = make(chan *Message, 999*n)
+				nodeChans[round][instance][k] = make(chan *utils.Message, 999*n)
 			}
 		}
 		// Set receive channel to separate variable in order to prevent data/lock races
@@ -180,7 +199,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 			SigShare:     sig,
 			KeyMeta: keyMeta,
 		}
-		outs[i] = make([]chan []byte, n)
+		outs[i] = make([]chan *utils.BlockShare, n)
 		for j := 0; j < n; j++ {
 			config := &ReliableBroadcastConfig{
 				N:        n,
@@ -191,10 +210,10 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 				SenderId: j,
 				Round:    0,
 			}
-			outs[i][j] = make(chan []byte, 100)
+			outs[i][j] = make(chan *utils.BlockShare, 100)
 			broadcasts[i] = append(broadcasts[i], NewReliableBroadcast(config, committee, outs[i][j], signature, multicast, receive))
 			if i == j {
-				broadcasts[i][j].SetValue(inputs[j])
+				broadcasts[i][j].SetValue(blockShares[j])
 			}
 		}
 	}
@@ -216,8 +235,8 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 	for i := 0; i < n-ta; i++ {
 		for j := 0; j < n-ta; j++ {
 			val := broadcasts[i][j].GetValue()
-			if !bytes.Equal(val, inputs[broadcasts[i][j].senderId]) {
-				t.Errorf("Expected %q, got %q", inputs[broadcasts[i][j].senderId], val)
+			if !bytes.Equal(val.Block.Vec[j].Message, inputs[broadcasts[i][j].senderId]) {
+				t.Errorf("Expected %q, got %q", inputs[broadcasts[i][j].senderId], val.Block.Vec[j].Message)
 			}
 		}
 	}

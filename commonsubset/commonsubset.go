@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 	aba "github.com/sochsenreither/upgrade/binaryagreement"
 	rbc "github.com/sochsenreither/upgrade/broadcast"
 )
@@ -25,13 +26,13 @@ type CommonSubset struct {
 	tk        int                      // Threshold for distinct committee messages
 	round     int                      // Current round
 	committee map[int]bool             // List of committee members
-	input     []byte                   // Input value
-	out       chan [][]byte            // Output values
+	input     *utils.BlockShare           // Input value
+	out       chan []*utils.BlockShare    // Output values
 	rbcs      []*rbc.ReliableBroadcast // N instances of reliable broadcast
 	abas      []*aba.BinaryAgreement   // N instances of binary agreement
 	tc        *ThresholdCrypto         // Personal signature, key meta and signing key
-	multicast func(msg *message)       // Function for multicasting messages
-	receive   func() *message          // Blocking function for receiving messages
+	multicast func(msg *utils.Message)       // Function for multicasting messages
+	receive   func() *utils.Message          // Blocking function for receiving messages
 	sync.Mutex
 }
 
@@ -41,14 +42,10 @@ type ThresholdCrypto struct {
 	SigShare *tcrsa.SigShare // Signature on node index signed by the dealer
 }
 
-type message struct {
-	sender  int
-	Payload interface{}
-}
 
 type acsMessage struct {
 	sender   int
-	values   [][]byte
+	values   []*utils.BlockShare
 	sigShare *tcrsa.SigShare // sigShare on values
 }
 
@@ -60,7 +57,7 @@ type acsSignatureMessage struct {
 
 type acsCommitteeMessage struct {
 	sender   int
-	values   [][]byte
+	values   []*utils.BlockShare
 	hash     [32]byte
 	sigShare *tcrsa.SigShare // sigShare on hash
 	proof    *tcrsa.SigShare // sigShare on the nodeId as proof that the sender is in the committee
@@ -75,12 +72,12 @@ type ACSConfig struct {
 	Round   int
 }
 
-func NewACS(cfg *ACSConfig, comittee map[int]bool, input []byte, out chan [][]byte, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, multicastFunc func(nodeId, round int, msg *message), receiveFunc func(nodeId, round int) *message) *CommonSubset {
+func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, out chan []*utils.BlockShare, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, multicastFunc func(nodeId, round int, msg *utils.Message), receiveFunc func(nodeId, round int) *utils.Message) *CommonSubset {
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
-	multicast := func(msg *message) {
+	multicast := func(msg *utils.Message) {
 		multicastFunc(cfg.NodeId, cfg.Round, msg)
 	}
-	receive := func() *message {
+	receive := func() *utils.Message {
 		return receiveFunc(cfg.NodeId, cfg.Round)
 	}
 	acs := &CommonSubset{
@@ -104,18 +101,18 @@ func NewACS(cfg *ACSConfig, comittee map[int]bool, input []byte, out chan [][]by
 func (acs *CommonSubset) Run() {
 	commit := false
 
-	var acsFinished [][]byte      // return value of the inner acs protocol
-	var signature tcrsa.Signature // combined signature of signature shares of committee members
-	var receivedHash []byte       // received hash on s by committee members
+	var acsFinished []*utils.BlockShare // return value of the inner acs protocol
+	var signature tcrsa.Signature    // combined signature of signature shares of committee members
+	var receivedHash []byte          // received hash on s by committee members
 
-	rbcVals := make(map[int][]byte)                              // map containint rbc results
+	rbcVals := make(map[int]*utils.BlockShare)                              // map containint rbc results
 	s := make(map[int]bool)                                      // maps NodeId -> true/false
 	startAba := make(chan struct{}, acs.n)                       // channel to get unstarted aba instances started
-	acsOut := make(chan [][]byte, 999)                           // channel for the output of the inner acs protocol
+	acsOut := make(chan []*utils.BlockShare, 999)                   // channel for the output of the inner acs protocol
 	rbcDone := make(chan int, acs.n)                             // channel for notifying if a rbc instance terminated
 	abaRunning := make(map[int]bool)                             // tracks aba instances that are already running
 	abaFinished := make(map[int]bool)                            // tracks aba instances that terminated
-	messageChan := make(chan *message, acs.n*acs.n*9999)         // channel for routing incoming messages
+	messageChan := make(chan *utils.Message, acs.n*acs.n*9999)         // channel for routing incoming messages
 	sharesReceived := make(map[[32]byte]map[int]*tcrsa.SigShare) // Maps hash -> nodeId -> sig
 
 	messageHandler := func() {
@@ -217,10 +214,10 @@ func (acs *CommonSubset) Run() {
 // Predicates
 
 //cOneHelper returns whether at least n-t executions of rbc_i have output val.
-func (acs *CommonSubset) cOneHelper(val []byte, rbcVals map[int][]byte) bool {
+func (acs *CommonSubset) cOneHelper(val *utils.BlockShare, rbcVals map[int]*utils.BlockShare) bool {
 	count := 0
 	for _, v := range rbcVals {
-		if bytes.Equal(val, v) {
+		if val.Hash() == v.Hash() {
 			count++
 		}
 	}
@@ -228,11 +225,11 @@ func (acs *CommonSubset) cOneHelper(val []byte, rbcVals map[int][]byte) bool {
 }
 
 // cOne returns whether there exists a val for which cOneHelper is true.
-func (acs *CommonSubset) cOne(rbcVals map[int][]byte) (bool, []byte) {
+func (acs *CommonSubset) cOne(rbcVals map[int]*utils.BlockShare) (bool, *utils.BlockShare) {
 	if len(rbcVals) < acs.n-acs.t {
 		return false, nil
 	}
-	// TODO: bad runtime
+	// TODO: bad runtime?
 	for _, v := range rbcVals {
 		if acs.cOneHelper(v, rbcVals) {
 			return true, v
@@ -242,7 +239,7 @@ func (acs *CommonSubset) cOne(rbcVals map[int][]byte) (bool, []byte) {
 }
 
 // cTwoHelper returns whether all aba instances have terminated, |s| >= n-t and wheter val is returned by the majority of rbc instances.
-func (acs *CommonSubset) cTwoHelper(val []byte, rbcVals map[int][]byte, s map[int]bool, abaFinished map[int]bool) bool {
+func (acs *CommonSubset) cTwoHelper(val *utils.BlockShare, rbcVals map[int]*utils.BlockShare, s map[int]bool, abaFinished map[int]bool) bool {
 	if len(s) < acs.n-acs.t {
 		return false
 	}
@@ -252,7 +249,7 @@ func (acs *CommonSubset) cTwoHelper(val []byte, rbcVals map[int][]byte, s map[in
 
 	count := 0
 	for _, v := range rbcVals {
-		if bytes.Equal(val, v) {
+		if val.Hash() == v.Hash() {
 			count++
 		}
 	}
@@ -260,7 +257,7 @@ func (acs *CommonSubset) cTwoHelper(val []byte, rbcVals map[int][]byte, s map[in
 }
 
 // cTwo returns whether there exists a val for which cTwoHelper is true.
-func (acs *CommonSubset) cTwo(rbcVals map[int][]byte, s map[int]bool, abaFinished map[int]bool) (bool, []byte) {
+func (acs *CommonSubset) cTwo(rbcVals map[int]*utils.BlockShare, s map[int]bool, abaFinished map[int]bool) (bool, *utils.BlockShare) {
 	if len(s) < acs.n-acs.t {
 		return false, nil
 	}
@@ -274,13 +271,13 @@ func (acs *CommonSubset) cTwo(rbcVals map[int][]byte, s map[int]bool, abaFinishe
 }
 
 // cThree returns whether |s| >= n-t and all executions of rbc and aba have terminated.
-func (acs *CommonSubset) cThree(rbcVals map[int][]byte, s map[int]bool, abaFinished map[int]bool) bool {
+func (acs *CommonSubset) cThree(rbcVals map[int]*utils.BlockShare, s map[int]bool, abaFinished map[int]bool) bool {
 	return len(s) >= acs.n-acs.t && len(abaFinished) == acs.n && len(rbcVals) == acs.n
 }
 
 // eventHandler checks for the three output conditions and sends a commit message if one condition
 // is met and the node is in the committee.
-func (acs *CommonSubset) eventHandler(rbcVals map[int][]byte, s map[int]bool, abaFinished map[int]bool, commit *bool, acsOut chan [][]byte) {
+func (acs *CommonSubset) eventHandler(rbcVals map[int]*utils.BlockShare, s map[int]bool, abaFinished map[int]bool, commit *bool, acsOut chan []*utils.BlockShare) {
 	acs.Lock()
 	defer acs.Unlock()
 	if *commit {
@@ -291,7 +288,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int][]byte, s map[int]bool, ab
 	if bOne && !*commit {
 		log.Printf("Node %d: Condition C1 is true", acs.nodeId)
 		*commit = true
-		out := [][]byte{vOne}
+		out := []*utils.BlockShare{vOne}
 		acsOut <- out
 		if acs.committee[acs.nodeId] {
 			acs.multicastCommit(out)
@@ -303,7 +300,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int][]byte, s map[int]bool, ab
 	if bTwo && !*commit {
 		log.Printf("Node %d: Condition C2 is true", acs.nodeId)
 		*commit = true
-		out := [][]byte{vTwo}
+		out := []*utils.BlockShare{vTwo}
 		acsOut <- out
 		if acs.committee[acs.nodeId] {
 			acs.multicastCommit(out)
@@ -314,7 +311,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int][]byte, s map[int]bool, ab
 	if bThree && !*commit {
 		log.Printf("Node %d: Condition C3 is true", acs.nodeId)
 		*commit = true
-		var outputs [][]byte
+		var outputs []*utils.BlockShare
 		for i := 0; i < acs.n; i++ {
 			if s[i] {
 				outputs = append(outputs, rbcVals[i])
@@ -329,7 +326,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int][]byte, s map[int]bool, ab
 }
 
 // multicastCommit creates and multicasts a commit message with a given value slice
-func (acs *CommonSubset) multicastCommit(values [][]byte) {
+func (acs *CommonSubset) multicastCommit(values []*utils.BlockShare) {
 	hash := acs.hashValues(values)
 	sig, err := acs.signHash(hash)
 	if err != nil {
@@ -343,20 +340,21 @@ func (acs *CommonSubset) multicastCommit(values [][]byte) {
 		sigShare: sig,
 		proof:    acs.tc.SigShare,
 	}
-	mes := &message{
-		sender:  acs.nodeId,
+	mes := &utils.Message{
+		Sender:  acs.nodeId,
 		Payload: payload,
 	}
 
-	log.Printf("Node %d is multicasting commit on %d", acs.nodeId, values)
+	log.Printf("Node %d is multicasting commit on %p", acs.nodeId, values)
 	acs.multicast(mes)
 }
 
 // hashValues returns the hash of a slice of byte slices
-func (acs *CommonSubset) hashValues(values [][]byte) [32]byte {
+func (acs *CommonSubset) hashValues(values []*utils.BlockShare) [32]byte {
 	var data []byte
 	for _, v := range values {
-		data = append(data, v...)
+		h := v.Hash()
+		data = append(data, h[:]...)
 	}
 	hash := sha256.Sum256(data)
 	return hash
@@ -404,8 +402,8 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 			log.Printf("Node %d failed to create joined signature, %s", acs.nodeId, err)
 			return nil, nil
 		}
-		mes := &message{
-			sender: acs.nodeId,
+		mes := &utils.Message{
+			Sender: acs.nodeId,
 			Payload: &acsSignatureMessage{
 				sender: acs.nodeId,
 				hash:   m.hash,
@@ -426,8 +424,8 @@ func (acs *CommonSubset) handleSignatureMessage(m *acsSignatureMessage) ([]byte,
 		log.Printf("Node %d received signature message with invalid signature", acs.nodeId)
 		return nil, nil
 	}
-	mes := &message{
-		sender: acs.nodeId,
+	mes := &utils.Message{
+		Sender: acs.nodeId,
 		Payload: &acsSignatureMessage{
 			sender: acs.nodeId,
 			hash:   m.hash,
@@ -469,7 +467,7 @@ func (acs *CommonSubset) isValidSignature(m *acsCommitteeMessage) bool {
 }
 
 // canTerminate returns whether the termination conditions are met.
-func (acs *CommonSubset) canTerminate(acsFinished [][]byte, signature tcrsa.Signature, receivedHash []byte) bool {
+func (acs *CommonSubset) canTerminate(acsFinished []*utils.BlockShare, signature tcrsa.Signature, receivedHash []byte) bool {
 	if acsFinished == nil || signature == nil || receivedHash == nil {
 		return false
 	}
@@ -479,6 +477,6 @@ func (acs *CommonSubset) canTerminate(acsFinished [][]byte, signature tcrsa.Sign
 }
 
 // getValue returns the output of the acs protocol (blocking)
-func (acs *CommonSubset) getValue() [][]byte {
+func (acs *CommonSubset) getValue() []*utils.BlockShare {
 	return <-acs.out
 }

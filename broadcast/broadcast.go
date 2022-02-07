@@ -8,33 +8,29 @@ import (
 	"strconv"
 
 	"github.com/niclabs/tcrsa"
-)
+	"github.com/sochsenreither/upgrade/utils"
+	)
 
 // TODO:
 // - hash length is hardcoded to 32 for now
 
 type ReliableBroadcast struct {
-	n         int                // Number of nodes
-	nodeId    int                // Id of node
-	t         int                // Number of maximum faulty nodes
-	tk        int                // Threshold for distinct committee messages
-	senderId  int                // Id of sender
-	committee map[int]bool       // List of committee members
-	value     []byte             // Input value of the sender
-	out       chan []byte        // Output channel
-	Sig       *Signature         // Personal signature and keymeta
-	multicast func(msg *Message) // Function for multicasting messages
-	receive   func() *Message    // Blocking function for receiving messages
+	n         int                 // Number of nodes
+	nodeId    int                 // Id of node
+	t         int                 // Number of maximum faulty nodes
+	tk        int                 // Threshold for distinct committee messages
+	senderId  int                 // Id of sender
+	committee map[int]bool        // List of committee members
+	value     *utils.BlockShare      // Input value of the sender
+	out       chan *utils.BlockShare // Output channel
+	Sig       *Signature          // Personal signature and keymeta
+	multicast func(msg *utils.Message)  // Function for multicasting messages
+	receive   func() *utils.Message     // Blocking function for receiving messages
 }
 
 type Signature struct {
 	SigShare *tcrsa.SigShare // Signature on node index signed by the dealer
 	KeyMeta  *tcrsa.KeyMeta  // Contains public keys to verify signatures
-}
-
-type Message struct {
-	Sender  int
-	Payload interface{}
 }
 
 // Struct representing a message for Bracha's asynchronous reliable broadcast protocol
@@ -47,7 +43,7 @@ type BMessage struct {
 // Struct representing a message for the committee based reliable broadcast protocol
 type CMessage struct {
 	sender int
-	value  []byte
+	value  *utils.BlockShare
 	hash   [32]byte
 	proof  *tcrsa.SigShare // sigShare on the nodeId as proof that the sender is in the committee
 }
@@ -55,7 +51,7 @@ type CMessage struct {
 // Struct repesenting a value send from the sender to the committee
 type SMessage struct {
 	sender int
-	value  []byte
+	value  *utils.BlockShare
 }
 
 type ReliableBroadcastConfig struct {
@@ -68,12 +64,12 @@ type ReliableBroadcastConfig struct {
 	Round    int
 }
 
-func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, out chan []byte, sig *Signature, multicastFunc func(nodeId, instance, round int, msg *Message), receiveFunc func(nodeId, instance, round int) *Message) *ReliableBroadcast {
+func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, out chan *utils.BlockShare, sig *Signature, multicastFunc func(nodeId, instance, round int, msg *utils.Message), receiveFunc func(nodeId, instance, round int) *utils.Message) *ReliableBroadcast {
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
-	multicast := func(msg *Message) {
+	multicast := func(msg *utils.Message) {
 		multicastFunc(cfg.NodeId, cfg.SenderId, cfg.Round, msg)
 	}
-	receive := func() *Message {
+	receive := func() *utils.Message {
 		return receiveFunc(cfg.NodeId, cfg.SenderId, cfg.Round)
 	}
 	rbc := &ReliableBroadcast{
@@ -107,7 +103,7 @@ func (rbc *ReliableBroadcast) Run() {
 	// Value received after running Bracha's broadcast
 	var broadcastValue [32]byte
 	// Value received from Sender
-	var senderValue []byte
+	var senderValue *utils.BlockShare
 
 	if rbc.isSender() {
 		rbc.multicastToCommittee()
@@ -154,7 +150,7 @@ func (rbc *ReliableBroadcast) isSender() bool {
 }
 
 // SetValue sets a given value for the sender.
-func (rbc *ReliableBroadcast) SetValue(value []byte) {
+func (rbc *ReliableBroadcast) SetValue(value *utils.BlockShare) {
 	rbc.value = value
 }
 
@@ -231,7 +227,7 @@ func (rbc *ReliableBroadcast) handleCommitteeMessage(m *CMessage, committeeRecei
 
 // multicastToCommittee sends a value to every committee member.
 func (rbc *ReliableBroadcast) multicastToCommittee() {
-	mes := &Message{
+	mes := &utils.Message{
 		Sender: rbc.nodeId,
 		Payload: &SMessage{
 			sender: rbc.nodeId,
@@ -244,8 +240,8 @@ func (rbc *ReliableBroadcast) multicastToCommittee() {
 // multicastVal multicasts a VAL message.
 func (rbc *ReliableBroadcast) multicastVal() {
 	// log.Printf("%d multicasting VAL", rbc.nodeId)
-	hash := sha256.Sum256(rbc.value)
-	mes := &Message{
+	hash := rbc.value.Hash()
+	mes := &utils.Message{
 		Sender: rbc.nodeId,
 		Payload: &BMessage{
 			sender: rbc.nodeId,
@@ -259,7 +255,7 @@ func (rbc *ReliableBroadcast) multicastVal() {
 // muticastEcho multicasts a ECHO message.
 func (rbc *ReliableBroadcast) multicastEcho(m *BMessage) {
 	// log.Printf("%d multicasting ECHO", rbc.nodeId)
-	mes := &Message{
+	mes := &utils.Message{
 		Sender: rbc.nodeId,
 		Payload: &BMessage{
 			sender: rbc.nodeId,
@@ -273,7 +269,7 @@ func (rbc *ReliableBroadcast) multicastEcho(m *BMessage) {
 // multicastReady multicasts a READY message.
 func (rbc *ReliableBroadcast) multicastReady(m *BMessage) {
 	// log.Printf("%d multicasting READY", rbc.nodeId)
-	mes := &Message{
+	mes := &utils.Message{
 		Sender: rbc.nodeId,
 		Payload: &BMessage{
 			sender: rbc.nodeId,
@@ -286,9 +282,9 @@ func (rbc *ReliableBroadcast) multicastReady(m *BMessage) {
 
 // multicastCommitteeMessage multicasts a message from a committee member if the hash received by
 // the broadcast matches the hash of the sender value.
-func (rbc *ReliableBroadcast) multicastCommitteeMessage(senderValue []byte, broadcastValue [32]byte) {
-	if h := sha256.Sum256(senderValue); h == broadcastValue {
-		mes := &Message{
+func (rbc *ReliableBroadcast) multicastCommitteeMessage(senderValue *utils.BlockShare, broadcastValue [32]byte) {
+	if h := senderValue.Hash(); h == broadcastValue {
+		mes := &utils.Message{
 			Sender: rbc.nodeId,
 			Payload: &CMessage{
 				sender: rbc.nodeId,
@@ -307,7 +303,7 @@ func (rbc *ReliableBroadcast) isValidCommitteeMessage(m *CMessage) bool {
 	if !rbc.committee[m.sender] {
 		return false
 	}
-	hash := sha256.Sum256(m.value)
+	hash := m.value.Hash()
 	if hash != m.hash {
 		return false
 	}
@@ -330,6 +326,6 @@ func (rbc *ReliableBroadcast) isValidSignature(m *CMessage) bool {
 }
 
 // GetValue returns the output of the broadcast (blocking)
-func (rbc *ReliableBroadcast) GetValue() []byte {
+func (rbc *ReliableBroadcast) GetValue() *utils.BlockShare {
 	return <-rbc.out
 }

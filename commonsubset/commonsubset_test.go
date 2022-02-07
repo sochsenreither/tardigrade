@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 	aba "github.com/sochsenreither/upgrade/binaryagreement"
 	rbc "github.com/sochsenreither/upgrade/broadcast"
 )
@@ -26,23 +27,33 @@ func TestACSSameValue(t *testing.T) {
 	committee[0] = true
 	committee[1] = true
 	committee[2] = true
-	inputs := [4][]byte{[]byte("zero"), []byte("zero"), []byte("zero"), []byte("zero")}
+
+	// Setup pre-block with four messages "zero" and a corresponding block-share.
+	preBlock := utils.NewPreBlock(n)
+	for i := 0; i < n; i++ {
+		mes, _ := utils.NewPreBlockMessage([]byte("zero"), keyShares[i], keyMeta)
+		preBlock.AddMessage(i, mes)
+	}
+	preBlockHash := preBlock.Hash()
+	// for now the signature isn't relevant, since this gets checked in the main protocol
+	blockPointer := utils.NewBlockPointer(preBlockHash[:], []byte{0})
+	blockShare := utils.NewBlockShare(preBlock, blockPointer)
 
 	abas := setupAba(n, ta, keyShares, keyMeta, coin, &mu)
-	rbcs := setupRbc(n, ta, keyShares, keyMeta, coin, &mu, inputs[:], committee)
+	rbcs := setupRbc(n, ta, keyShares, keyMeta, coin, &mu, []*utils.BlockShare{blockShare,blockShare,blockShare,blockShare}, committee)
 
-	outs := make(map[int]chan [][]byte)
-	nodeChans := make(map[int][]chan *message) // round -> chans
+	outs := make(map[int]chan []*utils.BlockShare)
+	nodeChans := make(map[int][]chan *utils.Message) // round -> chans
 	acs := make(map[int]*CommonSubset)
 
-	multicast := func(id, round int, msg *message) {
+	multicast := func(id, round int, msg *utils.Message) {
 		go func() {
-			var chans []chan *message
+			var chans []chan *utils.Message
 			mu.Lock()
 			if nodeChans[round] == nil {
-				nodeChans[round] = make([]chan *message, n)
+				nodeChans[round] = make([]chan *utils.Message, n)
 				for i := 0; i < n; i++ {
-					nodeChans[round][i] = make(chan *message, 9999*n)
+					nodeChans[round][i] = make(chan *utils.Message, 9999*n)
 				}
 			}
 			// Set channels to send to to different variable in order to prevent data/lock races
@@ -54,12 +65,12 @@ func TestACSSameValue(t *testing.T) {
 		}()
 	}
 
-	receive := func(id, round int) *message {
+	receive := func(id, round int) *utils.Message {
 		mu.Lock()
 		if nodeChans[round] == nil {
-			nodeChans[round] = make([]chan *message, n)
+			nodeChans[round] = make([]chan *utils.Message, n)
 			for i := 0; i < n; i++ {
-				nodeChans[round][i] = make(chan *message, 9999*n)
+				nodeChans[round][i] = make(chan *utils.Message, 9999*n)
 			}
 		}
 		ch := nodeChans[round][id]
@@ -71,19 +82,19 @@ func TestACSSameValue(t *testing.T) {
 	for i := 0; i < n; i++ {
 		tc := &ThresholdCrypto{
 			KeyShare: keyShares[i],
-			KeyMeta: keyMeta,
+			KeyMeta:  keyMeta,
 			SigShare: rbcs[i][0].Sig.SigShare,
 		}
 		cfg := &ACSConfig{
-				N:        n,
-				NodeId:   i,
-				T:        ta,
-				Kappa:    1,
-				Epsilon:  0,
-				Round:    0,
-			}
-		outs[i] = make(chan [][]byte, 100)
-		acs[i] = NewACS(cfg, committee, inputs[i], outs[i], rbcs[i], abas[i], tc, multicast, receive)
+			N:       n,
+			NodeId:  i,
+			T:       ta,
+			Kappa:   1,
+			Epsilon: 0,
+			Round:   0,
+		}
+		outs[i] = make(chan []*utils.BlockShare, 100)
+		acs[i] = NewACS(cfg, committee, blockShare, outs[i], rbcs[i], abas[i], tc, multicast, receive)
 	}
 
 	start := time.Now()
@@ -97,12 +108,23 @@ func TestACSSameValue(t *testing.T) {
 	}
 	wg.Wait()
 	fmt.Println("Execution time:", time.Since(start))
+	var returnHash [32]byte
 
 	for i := 0; i < n; i++ {
-		got := acs[i].getValue()[0]
-		expected := inputs[i]
-		if !bytes.Equal(got, expected) {
-			t.Errorf("Got %d, expected %d", got, expected)
+		got := acs[i].getValue()
+		if len(got) != 1 {
+			t.Errorf("Expected only one return value, got %d", len(got))
+		}
+		for _, v := range got[0].Block.Vec {
+			if !bytes.Equal(v.Message, []byte("zero")) {
+				t.Errorf("pre-block contains an unwanted value")
+			}
+		}
+		if i == 0 {
+			returnHash = got[0].Hash()
+		}
+		if got[0].Hash() != returnHash {
+			t.Errorf("Got different block-shares")
 		}
 	}
 }
@@ -118,23 +140,27 @@ func TestACSDifferentValues(t *testing.T) {
 	committee[0] = true
 	committee[1] = true
 	committee[2] = true
-	inputs := [4][]byte{[]byte("zero"), []byte("two"), []byte("three"), []byte("four")}
+	inputs := [4][]byte{[]byte("zero"), []byte("one"), []byte("two"), []byte("three")}
+	var blockShares []*utils.BlockShare
+	for i := 0; i < n; i++ {
+		blockShares = append(blockShares, setupBlockShare(n, i, inputs[i], keyShares[i], keyMeta))
+	}
 
 	abas := setupAba(n, ta, keyShares, keyMeta, coin, &mu)
-	rbcs := setupRbc(n, ta, keyShares, keyMeta, coin, &mu, inputs[:], committee)
+	rbcs := setupRbc(n, ta, keyShares, keyMeta, coin, &mu, blockShares, committee)
 
-	outs := make(map[int]chan [][]byte)
-	nodeChans := make(map[int][]chan *message) // round -> chans
+	outs := make(map[int]chan []*utils.BlockShare)
+	nodeChans := make(map[int][]chan *utils.Message) // round -> chans
 	acs := make(map[int]*CommonSubset)
 
-	multicast := func(id, round int, msg *message) {
+	multicast := func(id, round int, msg *utils.Message) {
 		go func() {
-			var chans []chan *message
+			var chans []chan *utils.Message
 			mu.Lock()
 			if nodeChans[round] == nil {
-				nodeChans[round] = make([]chan *message, n)
+				nodeChans[round] = make([]chan *utils.Message, n)
 				for i := 0; i < n; i++ {
-					nodeChans[round][i] = make(chan *message, 9999*n)
+					nodeChans[round][i] = make(chan *utils.Message, 9999*n)
 				}
 			}
 			// Set channels to send to to different variable in order to prevent data/lock races
@@ -146,12 +172,12 @@ func TestACSDifferentValues(t *testing.T) {
 		}()
 	}
 
-	receive := func(id, round int) *message {
+	receive := func(id, round int) *utils.Message {
 		mu.Lock()
 		if nodeChans[round] == nil {
-			nodeChans[round] = make([]chan *message, n)
+			nodeChans[round] = make([]chan *utils.Message, n)
 			for i := 0; i < n; i++ {
-				nodeChans[round][i] = make(chan *message, 9999*n)
+				nodeChans[round][i] = make(chan *utils.Message, 9999*n)
 			}
 		}
 		ch := nodeChans[round][id]
@@ -174,8 +200,8 @@ func TestACSDifferentValues(t *testing.T) {
 				Epsilon:  0,
 				Round:    0,
 			}
-		outs[i] = make(chan [][]byte, 100)
-		acs[i] = NewACS(cfg, committee, inputs[i], outs[i], rbcs[i], abas[i], tc, multicast, receive)
+		outs[i] = make(chan []*utils.BlockShare, 100)
+		acs[i] = NewACS(cfg, committee, blockShares[i], outs[i], rbcs[i], abas[i], tc, multicast, receive)
 	}
 
 	start := time.Now()
@@ -192,11 +218,11 @@ func TestACSDifferentValues(t *testing.T) {
 
 	for i := 0; i < n; i++ {
 		got := acs[i].getValue()
-		if len(got) != len(inputs) {
+		if len(got) != len(blockShares) {
 			t.Errorf("Got output that doesn't match input")
 		}
 		for i := 0; i < len(got); i++ {
-			if !bytes.Equal(got[i], inputs[i]) {
+			if !bytes.Equal(got[i].Block.Vec[i].Message, inputs[i]) {
 				t.Errorf("Got output that doesn't match input")
 			}
 		}
@@ -264,23 +290,23 @@ func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 	return abas
 }
 
-func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, mu *sync.Mutex, inputs [][]byte, committee map[int]bool) map[int][]*rbc.ReliableBroadcast {
-	nodeChans := make(map[int]map[int][]chan *rbc.Message) // maps round -> instance -> chans
+func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, mu *sync.Mutex, inputs []*utils.BlockShare, committee map[int]bool) map[int][]*rbc.ReliableBroadcast {
+	nodeChans := make(map[int]map[int][]chan *utils.Message) // maps round -> instance -> chans
 	broadcasts := make(map[int][]*rbc.ReliableBroadcast)
-	outs := make(map[int][]chan []byte)
+	outs := make(map[int][]chan *utils.BlockShare)
 
-	multicast := func(id, instance, round int, msg *rbc.Message) {
+	multicast := func(id, instance, round int, msg *utils.Message) {
 		go func() {
-			var chans []chan *rbc.Message
+			var chans []chan *utils.Message
 			// If channels for round or instance don't exist create them first
 			mu.Lock()
 			if nodeChans[round] == nil {
-				nodeChans[round] = make(map[int][]chan *rbc.Message)
+				nodeChans[round] = make(map[int][]chan *utils.Message)
 			}
 			if len(nodeChans[round][instance]) != n {
-				nodeChans[round][instance] = make([]chan *rbc.Message, n)
+				nodeChans[round][instance] = make([]chan *utils.Message, n)
 				for i := 0; i < n; i++ {
-					nodeChans[round][instance][i] = make(chan *rbc.Message, 999*n)
+					nodeChans[round][instance][i] = make(chan *utils.Message, 999*n)
 				}
 			}
 			// Set channels to send to to different variable in order to prevent data/lock races
@@ -301,16 +327,16 @@ func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 			}
 		}()
 	}
-	receive := func(id, instance, round int) *rbc.Message {
+	receive := func(id, instance, round int) *utils.Message {
 		// If channels for round or instance don't exist create them first
 		mu.Lock()
 		if nodeChans[round] == nil {
-			nodeChans[round] = make(map[int][]chan *rbc.Message)
+			nodeChans[round] = make(map[int][]chan *utils.Message)
 		}
 		if len(nodeChans[round][instance]) != n {
-			nodeChans[round][instance] = make([]chan *rbc.Message, n)
+			nodeChans[round][instance] = make([]chan *utils.Message, n)
 			for k := 0; k < n; k++ {
-				nodeChans[round][instance][k] = make(chan *rbc.Message, 999*n)
+				nodeChans[round][instance][k] = make(chan *utils.Message, 999*n)
 			}
 		}
 		// Set receive channel to separate variable in order to prevent data/lock races
@@ -326,10 +352,10 @@ func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 		paddedHash, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 		sig, _ := keyShares[len(keyShares)-1].Sign(paddedHash, crypto.SHA256, keyMeta)
 		signature := &rbc.Signature{
-			SigShare:     sig,
-			KeyMeta: keyMeta,
+			SigShare: sig,
+			KeyMeta:  keyMeta,
 		}
-		outs[i] = make([]chan []byte, n)
+		outs[i] = make([]chan *utils.BlockShare, n)
 		for j := 0; j < n; j++ {
 			config := &rbc.ReliableBroadcastConfig{
 				N:        n,
@@ -340,7 +366,7 @@ func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 				SenderId: j,
 				Round:    0,
 			}
-			outs[i][j] = make(chan []byte, 100)
+			outs[i][j] = make(chan *utils.BlockShare, 100)
 			broadcasts[i] = append(broadcasts[i], rbc.NewReliableBroadcast(config, committee, outs[i][j], signature, multicast, receive))
 			if i == j {
 				broadcasts[i][j].SetValue(inputs[j])
@@ -361,4 +387,15 @@ func setupKeys(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta, *aba.CommonCoin) {
 	go commonCoin.Run()
 
 	return keyShares, keyMeta, commonCoin
+}
+
+func setupBlockShare(n, i int, mes []byte, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta) *utils.BlockShare {
+	preBlock := utils.NewPreBlock(n)
+	preBlocKMessage, _ := utils.NewPreBlockMessage(mes, keyShare, keyMeta)
+	preBlock.AddMessage(i, preBlocKMessage)
+	preBlockHash := preBlock.Hash()
+	// for now the signature isn't relevant, since this gets checked in the main protocol
+	blockPointer := utils.NewBlockPointer(preBlockHash[:], []byte{0})
+	blockShare := utils.NewBlockShare(preBlock, blockPointer)
+	return blockShare
 }

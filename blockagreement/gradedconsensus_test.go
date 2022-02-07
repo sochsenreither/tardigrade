@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 type testGradedConsensusInstance struct {
 	n               int
 	ts              int
 	round           int
-	nodeChans       []chan *message
+	nodeChans       []chan *utils.Message
 	tickers         []chan int
 	outs            []chan *gradedConsensusResult
 	gcs             []*gradedConsensus
@@ -29,7 +30,7 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 		n:               n,
 		ts:              ts,
 		round:           round,
-		nodeChans:       make([]chan *message, n),
+		nodeChans:       make([]chan *utils.Message, n),
 		tickers:         make([]chan int, n),
 		outs:            make([]chan *gradedConsensusResult, n),
 		gcs:             make([]*gradedConsensus, n),
@@ -44,7 +45,7 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 	}
 
 	// Fill pre-block with enough valid messages
-	pre := NewPreBlock(n)
+	pre := utils.NewPreBlock(n)
 	for i := 0; i < n; i++ {
 		// Create a test message with a corresponding signature by node i
 		message := []byte("test")
@@ -52,7 +53,7 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 		messageHashPadded, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, messageHash[:])
 		sig, _ := keyShares[i].Sign(messageHashPadded, crypto.SHA256, keyMeta)
 
-		preMes := &PreBlockMessage{
+		preMes := &utils.PreBlockMessage{
 			Message: message,
 			Sig:     sig,
 		}
@@ -66,7 +67,7 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 			preBlock: pre,
 			commits:  nil,
 		}
-		gc.nodeChans[i] = make(chan *message, n*n)
+		gc.nodeChans[i] = make(chan *utils.Message, n*n)
 		gc.tickers[i] = make(chan int, n*n*n)
 		gc.outs[i] = make(chan *gradedConsensusResult, n)
 		gc.kills[i] = make(chan struct{}, n)

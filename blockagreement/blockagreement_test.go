@@ -10,13 +10,14 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 type testBlockAgreementInstance struct {
 	n               int
 	ts              int
-	nodeChans       []chan *message
-	outs            []chan *PreBlock
+	nodeChans       []chan *utils.Message
+	outs            []chan *utils.PreBlock
 	bas             []*BlockAgreement
 	thresholdCrypto []*thresholdCrypto
 	leaderChan      chan *leaderRequest
@@ -29,8 +30,8 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta time.
 	ba := &testBlockAgreementInstance{
 		n:               n,
 		ts:              ts,
-		nodeChans:       make([]chan *message, n),
-		outs:            make([]chan *PreBlock, n),
+		nodeChans:       make([]chan *utils.Message, n),
+		outs:            make([]chan *utils.PreBlock, n),
 		bas:             make([]*BlockAgreement, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
 		leaderChan:      make(chan *leaderRequest),
@@ -45,7 +46,7 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta time.
 	}
 
 	// Fill pre-block with enough valid messages
-	pre := NewPreBlock(n)
+	pre := utils.NewPreBlock(n)
 	for i := 0; i < n; i++ {
 		// Create a test message with a corresponding signature by node i
 		message := []byte("test")
@@ -53,7 +54,7 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta time.
 		messageHashPadded, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, messageHash[:])
 		sig, _ := keyShares[i].Sign(messageHashPadded, crypto.SHA256, keyMeta)
 
-		preMes := &PreBlockMessage{
+		preMes := &utils.PreBlockMessage{
 			Message: message,
 			Sig:     sig,
 		}
@@ -62,8 +63,8 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta time.
 
 	// Set up individual block agreement protocols
 	for i := 0; i < n; i++ {
-		ba.nodeChans[i] = make(chan *message, n*ba.kappa*n)
-		ba.outs[i] = make(chan *PreBlock, n*ba.kappa)
+		ba.nodeChans[i] = make(chan *utils.Message, n*ba.kappa*n)
+		ba.outs[i] = make(chan *utils.PreBlock, n*ba.kappa)
 		ba.thresholdCrypto[i] = &thresholdCrypto{
 			keyShare: keyShares[i],
 			keyMeta:  keyMeta,

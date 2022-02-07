@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 // TODO:
@@ -29,9 +30,9 @@ type testProposeInstance struct {
 	ts              int
 	proposer        int
 	round           int
-	nodeChans       []chan *message
+	nodeChans       []chan *utils.Message
 	tickers         []chan int
-	outs            []chan *PreBlock
+	outs            []chan *utils.PreBlock
 	ps              []*proposeProtocol
 	kills           []chan struct{}
 	thresholdCrypto []*thresholdCrypto
@@ -43,9 +44,9 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		ts:              ts,
 		proposer:        proposer,
 		round:           round,
-		nodeChans:       make([]chan *message, n),
+		nodeChans:       make([]chan *utils.Message, n),
 		tickers:         make([]chan int, n),
-		outs:            make([]chan *PreBlock, n),
+		outs:            make([]chan *utils.PreBlock, n),
 		ps:              make([]*proposeProtocol, n),
 		kills:           make([]chan struct{}, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
@@ -57,7 +58,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 	}
 
 	// Fill pre-block with enough valid messages
-	pre := NewPreBlock(n)
+	pre := utils.NewPreBlock(n)
 	for i := 0; i < n; i++ {
 		// Create a test Message with a corresponding signature by node i
 		message := []byte("test")
@@ -65,7 +66,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		messageHashPadded, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, messageHash[:])
 		sig, _ := keyShares[i].Sign(messageHashPadded, crypto.SHA256, keyMeta)
 
-		preMes := &PreBlockMessage{
+		preMes := &utils.PreBlockMessage{
 			Message: message,
 			Sig:     sig,
 		}
@@ -79,9 +80,9 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 			preBlock:    pre,
 			commits: nil,
 		}
-		prop.nodeChans[i] = make(chan *message, n*n)
+		prop.nodeChans[i] = make(chan *utils.Message, n*n)
 		prop.tickers[i] = make(chan int, n*n)
-		prop.outs[i] = make(chan *PreBlock, n)
+		prop.outs[i] = make(chan *utils.PreBlock, n)
 		prop.kills[i] = make(chan struct{}, n)
 		prop.thresholdCrypto[i] = &thresholdCrypto{
 			keyShare: keyShares[i],

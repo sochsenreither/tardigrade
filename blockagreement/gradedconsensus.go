@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 type gradedConsensus struct {
@@ -13,7 +14,7 @@ type gradedConsensus struct {
 	t               int                         // Number of maximum faulty nodes
 	proposerId      int                         // Proposer id
 	round           int                         // Round number
-	nodeChans       []chan *message             // Communication channels of all nodes
+	nodeChans       []chan *utils.Message             // Communication channels of all nodes
 	vote            *vote                       // Input vote of the node
 	killConsensus   chan struct{}               // Termination channel
 	thresholdCrypto *thresholdCrypto            // Struct containing the secret key and key meta
@@ -33,7 +34,7 @@ type leaderAnswer struct {
 }
 
 type gradedConsensusResult struct {
-	preBlock *PreBlock
+	preBlock *utils.PreBlock
 	commits  []*commitMessage
 	grade    int
 }
@@ -41,20 +42,20 @@ type gradedConsensusResult struct {
 type commitMessage struct {
 	sender   int
 	round    int
-	preBlock *PreBlock
+	preBlock *utils.PreBlock
 	sig      *tcrsa.SigShare
 }
 
 type notifyMessage struct {
 	sender   int
 	round    int
-	preBlock *PreBlock
+	preBlock *utils.PreBlock
 	commits  []*commitMessage
 }
 
 // Returns a new graded consensus protocol instance
-func NewGradedConsensus(n, nodeId, t, round int, nodeChans []chan *message, tickerChan chan int, vote *vote, killConsensus chan struct{}, thresthresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *gradedConsensusResult) *gradedConsensus {
-	proposeOut := make(chan *PreBlock, 10)
+func NewGradedConsensus(n, nodeId, t, round int, nodeChans []chan *utils.Message, tickerChan chan int, vote *vote, killConsensus chan struct{}, thresthresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *gradedConsensusResult) *gradedConsensus {
+	proposeOut := make(chan *utils.PreBlock, 10)
 	killPropose := make(chan struct{}, 10)
 	propose := NewProposeProtocol(n, nodeId, t, -1, round, nodeChans, tickerChan, vote, proposeOut, killPropose, thresthresholdCrypto)
 
@@ -136,7 +137,7 @@ func (gc *gradedConsensus) run() {
 			gc.out <- result
 			return
 		case message := <-gc.nodeChans[gc.nodeId]:
-			switch m := message.payload.(type) {
+			switch m := message.Payload.(type) {
 			case *notifyMessage:
 				result := &gradedConsensusResult{
 					preBlock: nil,
@@ -157,7 +158,7 @@ func (gc *gradedConsensus) run() {
 }
 
 // Creates a commit message and multicasts it
-func (gc *gradedConsensus) multicastCommitMessage(pre *PreBlock) {
+func (gc *gradedConsensus) multicastCommitMessage(pre *utils.PreBlock) {
 	commitMes := &commitMessage{
 		sender:   gc.nodeId,
 		round:    gc.round,
@@ -171,9 +172,9 @@ func (gc *gradedConsensus) multicastCommitMessage(pre *PreBlock) {
 	}
 	commitMes.sig = sig
 
-	message := &message{
-		sender:  gc.nodeId,
-		payload: commitMes,
+	message := &utils.Message{
+		Sender:  gc.nodeId,
+		Payload: commitMes,
 	}
 
 	log.Println(gc.nodeId, "multicasts commit")
@@ -181,7 +182,7 @@ func (gc *gradedConsensus) multicastCommitMessage(pre *PreBlock) {
 }
 
 // Sends a given message to all nodes
-func (gc *gradedConsensus) multicast(message *message) {
+func (gc *gradedConsensus) multicast(message *utils.Message) {
 	for _, node := range gc.nodeChans {
 		node <- message
 	}
@@ -199,7 +200,7 @@ func (gc *gradedConsensus) handleCommitMessages(commits map[int]*commitMessage) 
 		case gc.proposeProtocol.time = <-gc.proposeProtocol.tickerChan:
 			return
 		case message := <-gc.nodeChans[gc.nodeId]:
-			switch m := message.payload.(type) {
+			switch m := message.Payload.(type) {
 			case *commitMessage:
 				// Upon receiving the first valid commit message from a node add it to list of commits
 				// TODO: valid commit in own function
@@ -228,7 +229,7 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 	}
 
 	type helper struct {
-		preBlock       *PreBlock
+		preBlock       *utils.PreBlock
 		commitMessages []*commitMessage
 	}
 
@@ -262,9 +263,9 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 				commits:  subset.commitMessages,
 			}
 
-			message := &message{
-				sender:  gc.nodeId,
-				payload: notify,
+			message := &utils.Message{
+				Sender:  gc.nodeId,
+				Payload: notify,
 			}
 
 			log.Println(gc.nodeId, "multicasting notify and terminating. Grade: 2")

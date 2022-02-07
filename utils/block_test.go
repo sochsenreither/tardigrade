@@ -1,7 +1,9 @@
-package blockagreement
+package utils
 
 import (
 	"testing"
+
+	"github.com/niclabs/tcrsa"
 )
 
 func TestPreBlock(t *testing.T) {
@@ -34,17 +36,13 @@ func TestPreBlock(t *testing.T) {
 	})
 
 	t.Run("Check if pre-block gets hashed", func(t *testing.T) {
-		block1 := NewPreBlock(3)
-		preBlockMessage1 := &PreBlockMessage{
-			Message: []byte("foo"),
-			Sig:     nil,
-		}
+		keyShares, keyMeta, _ := tcrsa.NewKey(512, uint16(2), uint16(2), nil)
+		preBlockMessage1, _ := NewPreBlockMessage([]byte("foo"), keyShares[0], keyMeta)
+		preBlockMessage2, _ := NewPreBlockMessage([]byte("bar"), keyShares[1], keyMeta)
 
+		block1 := NewPreBlock(3)
 		block2 := NewPreBlock(3)
-		preBlockMessage2 := &PreBlockMessage{
-			Message: []byte("bar"),
-			Sig:     nil,
-		}
+
 
 		for i := range block1.Vec {
 			block1.AddMessage(i, preBlockMessage1)

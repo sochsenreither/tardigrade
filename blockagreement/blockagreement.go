@@ -3,6 +3,8 @@ package blockagreement
 import (
 	"log"
 	"time"
+
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 // TODO:
@@ -14,18 +16,18 @@ type BlockAgreement struct {
 	t                       int                 // Number of maximum faulty nodes
 	round                   int                 // Round number
 	kappa                   int                 // Security parameter
-	nodeChans               []chan *message     // Communication channels of all nodes
-	preBlock                *PreBlock           // Input pre-block of the node
+	nodeChans               []chan *utils.Message     // Communication channels of all nodes
+	preBlock                *utils.PreBlock           // Input pre-block of the node
 	commits                 []*commitMessage    // List of commit messages received from GC
 	thresholdCrypto         *thresholdCrypto    // Struct containing the secret key and key meta
 	leaderChan              chan *leaderRequest // Channel for calling Leader(r)
-	out                     chan *PreBlock      // Output channel
+	out                     chan *utils.PreBlock      // Output channel
 	gradedConsensusProtocol *gradedConsensus    // Underlying sub-protocol
 	tickerChan              chan int            // Timer for synchronizing
 	delta                   time.Duration       // Round time
 }
 
-func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *message, preBlock *PreBlock, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *PreBlock, delta time.Duration, tickerChan chan int) *BlockAgreement {
+func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *utils.Message, preBlock *utils.PreBlock, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *utils.PreBlock, delta time.Duration, tickerChan chan int) *BlockAgreement {
 	killConsensus := make(chan struct{}, 10)
 	gradedConsensusOut := make(chan *gradedConsensusResult, 1)
 	vote := &vote{
@@ -56,7 +58,7 @@ func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *message, preBl
 
 func (ba *BlockAgreement) run() {
 	// Clean up communication channel
-	ba.nodeChans[ba.nodeId] = make(chan *message, 1000)
+	ba.nodeChans[ba.nodeId] = make(chan *utils.Message, 1000)
 
 	for ba.round < ba.kappa {
 		// At time 5r:

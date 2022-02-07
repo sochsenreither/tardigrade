@@ -7,34 +7,30 @@ import (
 	"log"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 // TODO:
 // change signature of pointer to signature of real value
 
 type proposeProtocol struct {
-	n               int              // Number of nodes
-	nodeId          int              // Id of node
-	t               int              // Number of maximum faulty nodes
-	proposerId      int              // Proposer id
-	round           int              // Round number
-	time            int              // Current time
-	nodeChans       []chan *message  // Communication channels of all nodes
-	tickerChan      chan int         // Ticker
-	vote            *vote            // Vote of the current node
-	out             chan *PreBlock   // Output channel
-	killPropose     chan struct{}    // Termination channel
-	thresholdCrypto *thresholdCrypto // Struct containing the secret key and key meta
+	n               int                   // Number of nodes
+	nodeId          int                   // Id of node
+	t               int                   // Number of maximum faulty nodes
+	proposerId      int                   // Proposer id
+	round           int                   // Round number
+	time            int                   // Current time
+	nodeChans       []chan *utils.Message // Communication channels of all nodes
+	tickerChan      chan int              // Ticker
+	vote            *vote                 // Vote of the current node
+	out             chan *utils.PreBlock  // Output channel
+	killPropose     chan struct{}         // Termination channel
+	thresholdCrypto *thresholdCrypto      // Struct containing the secret key and key meta
 }
 
 type thresholdCrypto struct {
 	keyShare *tcrsa.KeyShare
 	keyMeta  *tcrsa.KeyMeta
-}
-
-type message struct {
-	sender  int
-	payload interface{}
 }
 
 type voteMessage struct {
@@ -52,12 +48,12 @@ type proposeMessage struct {
 
 type vote struct {
 	round    int
-	preBlock *PreBlock
+	preBlock *utils.PreBlock
 	commits  []*commitMessage
 }
 
 // Returns a new propose protocol instance
-func NewProposeProtocol(n, nodeId, t, proposerId, round int, nodeChans []chan *message, ticker chan int, vote *vote, out chan *PreBlock, killPropose chan struct{}, thresthresholdCrypto *thresholdCrypto) *proposeProtocol {
+func NewProposeProtocol(n, nodeId, t, proposerId, round int, nodeChans []chan *utils.Message, ticker chan int, vote *vote, out chan *utils.PreBlock, killPropose chan struct{}, thresthresholdCrypto *thresholdCrypto) *proposeProtocol {
 	p := &proposeProtocol{
 		n:               n,
 		nodeId:          nodeId,
@@ -123,9 +119,9 @@ func (p *proposeProtocol) sendVotes() {
 	voteMes.sig = sig
 
 	// Wrap the vote message into a protocol message
-	message := &message{
-		sender:  p.nodeId,
-		payload: voteMes,
+	message := &utils.Message{
+		Sender:  p.nodeId,
+		Payload: voteMes,
 	}
 
 	log.Println(p.nodeId, "Sending vote to proposer")
@@ -143,12 +139,12 @@ func (p *proposeProtocol) handleVotes(votes map[int]*voteMessage) {
 		case <-p.tickerChan:
 			return
 		case vote := <-p.nodeChans[p.nodeId]:
-			switch v := vote.payload.(type) {
+			switch v := vote.Payload.(type) {
 			case *voteMessage:
 				// If the signature is invalid or the pre-block is invalid discard the message
 				str := fmt.Sprintf("%p", v)
 				if p.verify(str, v.sig) && p.isValidPreBlock(v.vote.preBlock) {
-					log.Println("Proposer received valid vote from", vote.sender)
+					log.Println("Proposer received valid vote from", vote.Sender)
 					if votes[v.sender] == nil {
 						votes[v.sender] = v
 					}
@@ -156,7 +152,7 @@ func (p *proposeProtocol) handleVotes(votes map[int]*voteMessage) {
 					log.Println("Proposer received invalid signature or invalid pre-block")
 				}
 			default:
-				log.Printf("Expected vote from %d, got %T", vote.sender, v)
+				log.Printf("Expected vote from %d, got %T", vote.Sender, v)
 			}
 		}
 	}
@@ -181,9 +177,9 @@ func (p *proposeProtocol) propose(votes map[int]*voteMessage) {
 		}
 		proposal.sig = sig
 
-		message := &message{
-			sender:  p.nodeId,
-			payload: proposal,
+		message := &utils.Message{
+			Sender:  p.nodeId,
+			Payload: proposal,
 		}
 
 		// Multicast propose to every node.
@@ -206,7 +202,7 @@ func (p *proposeProtocol) handleProposals() {
 			log.Println(p.nodeId, "received kill signal while waiting for proposal.. terminating")
 			return
 		case msg := <-p.nodeChans[p.nodeId]:
-			switch proposal := msg.payload.(type) {
+			switch proposal := msg.Payload.(type) {
 			case *proposeMessage:
 				if proposal.sender == p.proposerId {
 					// Received proposal is from the proposer
@@ -217,9 +213,9 @@ func (p *proposeProtocol) handleProposals() {
 							leaderProposal = proposal
 							received = true
 							log.Println(p.nodeId, "multicasting proposal")
-							mes := &message{
-								sender:  p.nodeId,
-								payload: proposal,
+							mes := &utils.Message{
+								Sender:  p.nodeId,
+								Payload: proposal,
 							}
 							p.multicast(mes)
 						} else {
@@ -231,11 +227,11 @@ func (p *proposeProtocol) handleProposals() {
 					}
 				} else {
 					// Received proposal is a forwarded proposal. Save it and check if every received proposal is exactly the same before terminating.
-					log.Println(p.nodeId, "received forwarded proposal from", msg.sender)
+					log.Println(p.nodeId, "received forwarded proposal from", msg.Sender)
 					proposals = append(proposals, proposal)
 				}
 			default:
-				log.Printf("%d received wrong message type from %d, %T", p.nodeId, msg.sender, proposal)
+				log.Printf("%d received wrong message type from %d, %T", p.nodeId, msg.Sender, proposal)
 			}
 		case <-p.tickerChan:
 			// This is time 3 and therefore the last tick. Output either nil or a pre-block.
@@ -262,7 +258,7 @@ func (p *proposeProtocol) handleProposals() {
 }
 
 // Send message to every node
-func (p *proposeProtocol) multicast(message *message) {
+func (p *proposeProtocol) multicast(message *utils.Message) {
 	for _, node := range p.nodeChans {
 		node <- message
 	}
@@ -347,7 +343,7 @@ func (p *proposeProtocol) isValidProposal(proposal *proposeMessage) bool {
 }
 
 // Determines if a pre-block is valid
-func (p *proposeProtocol) isValidPreBlock(pre *PreBlock) bool {
+func (p *proposeProtocol) isValidPreBlock(pre *utils.PreBlock) bool {
 	if pre.Quality() < (p.n - p.t) {
 		return false
 	}
@@ -392,7 +388,6 @@ func (p *proposeProtocol) verify(s string, sig *tcrsa.SigShare) bool {
 		log.Println(p.nodeId, "was unable to hash vote while verifying:", err)
 		return false
 	}
-	// TODO: Verify is really slow, takes about 1ms
 	if err = sig.Verify(hash, p.thresholdCrypto.keyMeta); err != nil {
 		log.Println(p.nodeId, "received invalid vote signature")
 		return false
