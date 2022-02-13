@@ -32,7 +32,7 @@ type testProposeInstance struct {
 	round           int
 	nodeChans       []chan *utils.Message
 	tickers         []chan int
-	outs            []chan *utils.PreBlock
+	outs            []chan *utils.BlockShare
 	ps              []*proposeProtocol
 	kills           []chan struct{}
 	thresholdCrypto []*thresholdCrypto
@@ -46,7 +46,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		round:           round,
 		nodeChans:       make([]chan *utils.Message, n),
 		tickers:         make([]chan int, n),
-		outs:            make([]chan *utils.PreBlock, n),
+		outs:            make([]chan *utils.BlockShare, n),
 		ps:              make([]*proposeProtocol, n),
 		kills:           make([]chan struct{}, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
@@ -72,17 +72,21 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		}
 		pre.AddMessage(i, preMes)
 	}
+	// TODO: change to real sig
+	h := pre.Hash()
+	blockPointer := utils.NewBlockPointer(h[:], []byte{0})
+	blockShare := utils.NewBlockShare(pre, blockPointer)
 
 	// Set up individual propose protocols
 	for i := 0; i < n; i++ {
 		vote := &vote{
 			round:       0,
-			preBlock:    pre,
+			blockShare:    blockShare,
 			commits: nil,
 		}
 		prop.nodeChans[i] = make(chan *utils.Message, n*n)
 		prop.tickers[i] = make(chan int, n*n)
-		prop.outs[i] = make(chan *utils.PreBlock, n)
+		prop.outs[i] = make(chan *utils.BlockShare, n)
 		prop.kills[i] = make(chan struct{}, n)
 		prop.thresholdCrypto[i] = &thresholdCrypto{
 			keyShare: keyShares[i],

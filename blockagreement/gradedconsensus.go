@@ -14,7 +14,7 @@ type gradedConsensus struct {
 	t               int                         // Number of maximum faulty nodes
 	proposerId      int                         // Proposer id
 	round           int                         // Round number
-	nodeChans       []chan *utils.Message             // Communication channels of all nodes
+	nodeChans       []chan *utils.Message       // Communication channels of all nodes
 	vote            *vote                       // Input vote of the node
 	killConsensus   chan struct{}               // Termination channel
 	thresholdCrypto *thresholdCrypto            // Struct containing the secret key and key meta
@@ -34,28 +34,28 @@ type leaderAnswer struct {
 }
 
 type gradedConsensusResult struct {
-	preBlock *utils.PreBlock
-	commits  []*commitMessage
-	grade    int
+	blockShare *utils.BlockShare
+	commits    []*commitMessage
+	grade      int
 }
 
 type commitMessage struct {
-	sender   int
-	round    int
-	preBlock *utils.PreBlock
-	sig      *tcrsa.SigShare
+	sender     int
+	round      int
+	blockShare *utils.BlockShare
+	sig        *tcrsa.SigShare
 }
 
 type notifyMessage struct {
-	sender   int
-	round    int
-	preBlock *utils.PreBlock
-	commits  []*commitMessage
+	sender     int
+	round      int
+	blockShare *utils.BlockShare
+	commits    []*commitMessage
 }
 
 // Returns a new graded consensus protocol instance
 func NewGradedConsensus(n, nodeId, t, round int, nodeChans []chan *utils.Message, tickerChan chan int, vote *vote, killConsensus chan struct{}, thresthresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *gradedConsensusResult) *gradedConsensus {
-	proposeOut := make(chan *utils.PreBlock, 10)
+	proposeOut := make(chan *utils.BlockShare, 10)
 	killPropose := make(chan struct{}, 10)
 	propose := NewProposeProtocol(n, nodeId, t, -1, round, nodeChans, tickerChan, vote, proposeOut, killPropose, thresthresholdCrypto)
 
@@ -129,9 +129,9 @@ func (gc *gradedConsensus) run() {
 			// Time 5:
 			// If no notify was received output grade 0 and terminate.
 			result := &gradedConsensusResult{
-				preBlock: nil,
-				commits:  nil,
-				grade:    0,
+				blockShare: nil,
+				commits:    nil,
+				grade:      0,
 			}
 			log.Println(gc.nodeId, "didn't receive any notify")
 			gc.out <- result
@@ -140,12 +140,12 @@ func (gc *gradedConsensus) run() {
 			switch m := message.Payload.(type) {
 			case *notifyMessage:
 				result := &gradedConsensusResult{
-					preBlock: nil,
-					commits:  nil,
-					grade:    0,
+					blockShare: nil,
+					commits:    nil,
+					grade:      0,
 				}
 				if gc.isValidNotify(m) {
-					result.preBlock = m.preBlock
+					result.blockShare = m.blockShare
 					result.commits = m.commits
 					result.grade = 1
 				}
@@ -158,12 +158,12 @@ func (gc *gradedConsensus) run() {
 }
 
 // Creates a commit message and multicasts it
-func (gc *gradedConsensus) multicastCommitMessage(pre *utils.PreBlock) {
+func (gc *gradedConsensus) multicastCommitMessage(bs *utils.BlockShare) {
 	commitMes := &commitMessage{
-		sender:   gc.nodeId,
-		round:    gc.round,
-		preBlock: pre,
-		sig:      nil,
+		sender:     gc.nodeId,
+		round:      gc.round,
+		blockShare: bs,
+		sig:        nil,
 	}
 	str := fmt.Sprintf("%p", commitMes)
 	sig, err := gc.proposeProtocol.sign(str)
@@ -205,7 +205,7 @@ func (gc *gradedConsensus) handleCommitMessages(commits map[int]*commitMessage) 
 				// Upon receiving the first valid commit message from a node add it to list of commits
 				// TODO: valid commit in own function
 				str := fmt.Sprintf("%p", m)
-				if gc.proposeProtocol.verify(str, m.sig) && m.preBlock.Quality() >= gc.t+1 {
+				if gc.proposeProtocol.verify(str, m.sig) && m.blockShare.Block.Quality() >= gc.t+1 {
 					sender := m.sender
 					log.Println(gc.nodeId, "received commit from", sender)
 					if commits[sender] == nil {
@@ -229,7 +229,7 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 	}
 
 	type helper struct {
-		preBlock       *utils.PreBlock
+		blockShare     *utils.BlockShare
 		commitMessages []*commitMessage
 	}
 
@@ -238,13 +238,13 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 	// occurences.
 	subsets := make(map[[32]byte]*helper)
 	for _, commit := range commits {
-		hash := commit.preBlock.Hash()
+		hash := commit.blockShare.Hash()
 		if subsets[hash] == nil {
 			// Found a new pre-block
 			commitMessages := make([]*commitMessage, 0)
 			commitMessages = append(commitMessages, commit)
 			subsets[hash] = &helper{
-				preBlock:       commit.preBlock,
+				blockShare:     commit.blockShare,
 				commitMessages: commitMessages,
 			}
 		} else {
@@ -257,10 +257,10 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 		if len(subset.commitMessages) >= gc.t+1 {
 			// If we found that subset multicast notify, output a grade and give a signal to terminate
 			notify := &notifyMessage{
-				sender:   gc.nodeId,
-				round:    gc.round,
-				preBlock: subset.preBlock,
-				commits:  subset.commitMessages,
+				sender:     gc.nodeId,
+				round:      gc.round,
+				blockShare: subset.blockShare,
+				commits:    subset.commitMessages,
 			}
 
 			message := &utils.Message{
@@ -272,9 +272,9 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 			gc.multicast(message)
 
 			result := &gradedConsensusResult{
-				preBlock: subset.preBlock,
-				commits:  subset.commitMessages,
-				grade:    2,
+				blockShare: subset.blockShare,
+				commits:    subset.commitMessages,
+				grade:      2,
 			}
 			gc.out <- result
 			notifySent <- true
@@ -295,7 +295,7 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 // TODO: verify signature?
 func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
 	// 1:
-	if notify.preBlock.Quality() < gc.n-gc.t {
+	if notify.blockShare.Block.Quality() < gc.n-gc.t {
 		log.Println(gc.nodeId, "received a notify that doesn't contain a valid pre-block")
 		return false
 	}
@@ -310,7 +310,7 @@ func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
 			return false
 		}
 		distinctNodes[commit.sender] = struct{}{}
-		distinctPreBlocks[commit.preBlock.Hash()] = struct{}{}
+		distinctPreBlocks[commit.blockShare.Hash()] = struct{}{}
 	}
 	// 2.1:
 	if len(distinctPreBlocks) > 1 {

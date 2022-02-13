@@ -17,22 +17,22 @@ type BlockAgreement struct {
 	round                   int                 // Round number
 	kappa                   int                 // Security parameter
 	nodeChans               []chan *utils.Message     // Communication channels of all nodes
-	preBlock                *utils.PreBlock           // Input pre-block of the node
+	blockShare                *utils.BlockShare           // Input pre-block of the node
 	commits                 []*commitMessage    // List of commit messages received from GC
 	thresholdCrypto         *thresholdCrypto    // Struct containing the secret key and key meta
 	leaderChan              chan *leaderRequest // Channel for calling Leader(r)
-	out                     chan *utils.PreBlock      // Output channel
+	out                     chan *utils.BlockShare      // Output channel
 	gradedConsensusProtocol *gradedConsensus    // Underlying sub-protocol
 	tickerChan              chan int            // Timer for synchronizing
 	delta                   time.Duration       // Round time
 }
 
-func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *utils.Message, preBlock *utils.PreBlock, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *utils.PreBlock, delta time.Duration, tickerChan chan int) *BlockAgreement {
+func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *utils.Message, blockShare *utils.BlockShare, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *utils.BlockShare, delta time.Duration, tickerChan chan int) *BlockAgreement {
 	killConsensus := make(chan struct{}, 10)
 	gradedConsensusOut := make(chan *gradedConsensusResult, 1)
 	vote := &vote{
 		round:    0,
-		preBlock: preBlock,
+		blockShare: blockShare,
 		commits:  nil,
 	}
 	gradedConsensus := NewGradedConsensus(n, nodeId, t, 0, nodeChans, tickerChan, vote, killConsensus, thresholdCrypto, leaderChan, gradedConsensusOut)
@@ -44,7 +44,7 @@ func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *utils.Message,
 		round:                   0,
 		kappa:                   kappa,
 		nodeChans:               nodeChans,
-		preBlock:                preBlock,
+		blockShare:                blockShare,
 		thresholdCrypto:         thresholdCrypto,
 		leaderChan:              leaderChan,
 		out:                     out,
@@ -68,12 +68,12 @@ func (ba *BlockAgreement) run() {
 		ba.gradedConsensusProtocol.run()
 		res := <-ba.gradedConsensusProtocol.out
 		if res.grade > 0 {
-			ba.preBlock = res.preBlock
+			ba.blockShare = res.blockShare
 			ba.commits = res.commits
 		}
 		if res.grade == 2 {
 			log.Println(ba.nodeId, "got grade 2, outputting pre-block")
-			ba.out <- res.preBlock
+			ba.out <- res.blockShare
 		}
 
 		// At time 5(r+1):
@@ -92,12 +92,12 @@ func (ba *BlockAgreement) run() {
 func (ba *BlockAgreement) updateVotes() {
 	// Update vote in GC
 	ba.gradedConsensusProtocol.vote.round = ba.round
-	ba.gradedConsensusProtocol.vote.preBlock = ba.preBlock
+	ba.gradedConsensusProtocol.vote.blockShare = ba.blockShare
 	ba.gradedConsensusProtocol.vote.commits = ba.commits
 
 	// Update vote for propose
 	ba.gradedConsensusProtocol.proposeProtocol.vote.round = ba.round
-	ba.gradedConsensusProtocol.proposeProtocol.vote.preBlock = ba.preBlock
+	ba.gradedConsensusProtocol.proposeProtocol.vote.blockShare = ba.blockShare
 	ba.gradedConsensusProtocol.proposeProtocol.vote.commits = ba.commits
 }
 

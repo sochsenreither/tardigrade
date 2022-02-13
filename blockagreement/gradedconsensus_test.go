@@ -59,12 +59,16 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 		}
 		pre.AddMessage(i, preMes)
 	}
+	// TODO: change to real sig
+	h := pre.Hash()
+	blockPointer := utils.NewBlockPointer(h[:], []byte{0})
+	blockShare := utils.NewBlockShare(pre, blockPointer)
 
 	// Set up individual graded consensus protocols
 	for i := 0; i < n; i++ {
 		vote := &vote{
 			round:    0,
-			preBlock: pre,
+			blockShare: blockShare,
 			commits:  nil,
 		}
 		gc.nodeChans[i] = make(chan *utils.Message, n*n)

@@ -17,7 +17,7 @@ type testBlockAgreementInstance struct {
 	n               int
 	ts              int
 	nodeChans       []chan *utils.Message
-	outs            []chan *utils.PreBlock
+	outs            []chan *utils.BlockShare
 	bas             []*BlockAgreement
 	thresholdCrypto []*thresholdCrypto
 	leaderChan      chan *leaderRequest
@@ -31,7 +31,7 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta time.
 		n:               n,
 		ts:              ts,
 		nodeChans:       make([]chan *utils.Message, n),
-		outs:            make([]chan *utils.PreBlock, n),
+		outs:            make([]chan *utils.BlockShare, n),
 		bas:             make([]*BlockAgreement, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
 		leaderChan:      make(chan *leaderRequest),
@@ -60,17 +60,21 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta time.
 		}
 		pre.AddMessage(i, preMes)
 	}
+	// TODO: change to real sig
+	h := pre.Hash()
+	blockPointer := utils.NewBlockPointer(h[:], []byte{0})
+	blockShare := utils.NewBlockShare(pre, blockPointer)
 
 	// Set up individual block agreement protocols
 	for i := 0; i < n; i++ {
 		ba.nodeChans[i] = make(chan *utils.Message, n*ba.kappa*n)
-		ba.outs[i] = make(chan *utils.PreBlock, n*ba.kappa)
+		ba.outs[i] = make(chan *utils.BlockShare, n*ba.kappa)
 		ba.thresholdCrypto[i] = &thresholdCrypto{
 			keyShare: keyShares[i],
 			keyMeta:  keyMeta,
 		}
 		ba.tickers[i] = make(chan int, ba.kappa*ba.kappa*7)
-		ba.bas[i] = NewBlockAgreement(n, i, ts, ba.kappa, ba.nodeChans, pre, ba.thresholdCrypto[i], ba.leaderChan, ba.outs[i], ba.delta, ba.tickers[i])
+		ba.bas[i] = NewBlockAgreement(n, i, ts, ba.kappa, ba.nodeChans, blockShare, ba.thresholdCrypto[i], ba.leaderChan, ba.outs[i], ba.delta, ba.tickers[i])
 	}
 
 	return ba

@@ -9,23 +9,23 @@ import (
 
 	"github.com/niclabs/tcrsa"
 	"github.com/sochsenreither/upgrade/utils"
-	)
+)
 
 // TODO:
 // - hash length is hardcoded to 32 for now
 
 type ReliableBroadcast struct {
-	n         int                 // Number of nodes
-	nodeId    int                 // Id of node
-	t         int                 // Number of maximum faulty nodes
-	tk        int                 // Threshold for distinct committee messages
-	senderId  int                 // Id of sender
-	committee map[int]bool        // List of committee members
-	value     *utils.BlockShare      // Input value of the sender
-	out       chan *utils.BlockShare // Output channel
-	Sig       *Signature          // Personal signature and keymeta
-	multicast func(msg *utils.Message)  // Function for multicasting messages
-	receive   func() *utils.Message     // Blocking function for receiving messages
+	n         int                      // Number of nodes
+	nodeId    int                      // Id of node
+	t         int                      // Number of maximum faulty nodes
+	tk        int                      // Threshold for distinct committee messages
+	senderId  int                      // Id of sender
+	committee map[int]bool             // List of committee members
+	value     *utils.BlockShare        // Input value of the sender
+	out       chan *utils.BlockShare   // Output channel
+	Sig       *Signature               // Personal signature and keymeta
+	multicast func(msg *utils.Message) // Function for multicasting messages
+	receive   func() *utils.Message    // Blocking function for receiving messages
 }
 
 type Signature struct {

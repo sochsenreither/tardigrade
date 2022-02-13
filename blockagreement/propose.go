@@ -23,7 +23,7 @@ type proposeProtocol struct {
 	nodeChans       []chan *utils.Message // Communication channels of all nodes
 	tickerChan      chan int              // Ticker
 	vote            *vote                 // Vote of the current node
-	out             chan *utils.PreBlock  // Output channel
+	out             chan *utils.BlockShare  // Output channel
 	killPropose     chan struct{}         // Termination channel
 	thresholdCrypto *thresholdCrypto      // Struct containing the secret key and key meta
 }
@@ -48,12 +48,12 @@ type proposeMessage struct {
 
 type vote struct {
 	round    int
-	preBlock *utils.PreBlock
+	blockShare *utils.BlockShare
 	commits  []*commitMessage
 }
 
 // Returns a new propose protocol instance
-func NewProposeProtocol(n, nodeId, t, proposerId, round int, nodeChans []chan *utils.Message, ticker chan int, vote *vote, out chan *utils.PreBlock, killPropose chan struct{}, thresthresholdCrypto *thresholdCrypto) *proposeProtocol {
+func NewProposeProtocol(n, nodeId, t, proposerId, round int, nodeChans []chan *utils.Message, ticker chan int, vote *vote, out chan *utils.BlockShare, killPropose chan struct{}, thresthresholdCrypto *thresholdCrypto) *proposeProtocol {
 	p := &proposeProtocol{
 		n:               n,
 		nodeId:          nodeId,
@@ -143,7 +143,7 @@ func (p *proposeProtocol) handleVotes(votes map[int]*voteMessage) {
 			case *voteMessage:
 				// If the signature is invalid or the pre-block is invalid discard the message
 				str := fmt.Sprintf("%p", v)
-				if p.verify(str, v.sig) && p.isValidPreBlock(v.vote.preBlock) {
+				if p.verify(str, v.sig) && p.isValidPreBlock(v.vote.blockShare) {
 					log.Println("Proposer received valid vote from", vote.Sender)
 					if votes[v.sender] == nil {
 						votes[v.sender] = v
@@ -250,7 +250,7 @@ func (p *proposeProtocol) handleProposals() {
 					}
 				}
 				log.Println(p.nodeId, "is outputting a pre-block")
-				p.out <- leaderProposal.vote.preBlock
+				p.out <- leaderProposal.vote.blockShare
 				return
 			}
 		}
@@ -304,7 +304,7 @@ func (p *proposeProtocol) isValidProposal(proposal *proposeMessage) bool {
 		}
 	}
 	// 2:
-	if !p.isValidPreBlock(proposal.vote.preBlock) {
+	if !p.isValidPreBlock(proposal.vote.blockShare) {
 		log.Println(p.nodeId, "received invalid pre-block in proposal")
 		return false
 	}
@@ -343,11 +343,11 @@ func (p *proposeProtocol) isValidProposal(proposal *proposeMessage) bool {
 }
 
 // Determines if a pre-block is valid
-func (p *proposeProtocol) isValidPreBlock(pre *utils.PreBlock) bool {
-	if pre.Quality() < (p.n - p.t) {
+func (p *proposeProtocol) isValidPreBlock(bs *utils.BlockShare) bool {
+	if bs.Block.Quality() < (p.n - p.t) {
 		return false
 	}
-	for i, mes := range pre.Vec {
+	for i, mes := range bs.Block.Vec {
 		// If the index is invalid the pre-block is invalid.
 		if i != int(mes.Sig.Id-1) {
 			return false
@@ -360,6 +360,8 @@ func (p *proposeProtocol) isValidPreBlock(pre *utils.PreBlock) bool {
 			return false
 		}
 	}
+
+	// TODO: check for valid block pointer
 	return true
 }
 
