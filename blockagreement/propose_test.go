@@ -1,13 +1,14 @@
 package blockagreement
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/sha256"
 	"fmt"
 
-	"io/ioutil"
+	//"io/ioutil"
 	"log"
-	"os"
+	//"os"
 	"sync"
 	"testing"
 	"time"
@@ -20,10 +21,10 @@ import (
 // - invalid proposal from leader
 // - round > 0
 
-func TestMain(m *testing.M) {
-	log.SetOutput(ioutil.Discard)
-	os.Exit(m.Run())
-}
+// func TestMain(m *testing.M) {
+// 	log.SetOutput(ioutil.Discard)
+// 	os.Exit(m.Run())
+// }
 
 type testProposeInstance struct {
 	n               int
@@ -111,7 +112,18 @@ func TestPropEveryoneAgreesOnSameOutputInRoundOne(t *testing.T) {
 	for i := 0; i < test.n-test.ts; i++ {
 		val := <-test.outs[i]
 		if val == nil {
-			t.Errorf("Received nil as output, expected %d", 0)
+			t.Fatalf("Expected something")
+		}
+		if val.Block == nil {
+			t.Fatalf("Received nil as output")
+		}
+		for _, m := range val.Block.Vec {
+			if m == nil || m.Message == nil{
+				t.Errorf("Block doesn't have messages")
+			}
+			if !bytes.Equal(m.Message, []byte("test")) {
+				t.Errorf("Got %s, expected %s", m.Message, []byte("test"))
+			}
 		}
 	}
 

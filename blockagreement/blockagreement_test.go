@@ -104,7 +104,7 @@ func TestBAEveryoneOutputsSameBlock(t *testing.T) {
 
 	for i := 0; i < testBA.n-testBA.ts; i++ {
 		if len(testBA.outs[i]) != testBA.kappa {
-			t.Errorf("Expected %d outputs, got %d from node %d", 3, len(testBA.outs[i]), i)
+			t.Errorf("Expected %d outputs, got %d from node %d", 2, len(testBA.outs[i]), i)
 		}
 	}
 }

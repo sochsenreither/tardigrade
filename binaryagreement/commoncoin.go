@@ -4,7 +4,8 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
-	// "log"
+
+	"log"
 	"strconv"
 
 	"github.com/niclabs/tcrsa"
@@ -17,10 +18,10 @@ type CommonCoin struct {
 }
 
 type CoinRequest struct {
-	sender int
-	round  int
-	sig    *tcrsa.SigShare
-	answer chan byte
+	sender   int
+	round    int
+	sig      *tcrsa.SigShare
+	answer   chan byte
 	instance int
 }
 
@@ -61,12 +62,12 @@ func (cc *CommonCoin) Run() {
 		h := sha256.Sum256([]byte(strconv.Itoa(round)))
 		hash, err := tcrsa.PrepareDocumentHash(cc.keyMeta.PublicKey.Size(), crypto.SHA256, h[:])
 		if err != nil {
-			// log.Println("Common coin failed to create hash for round", round, err)
+			log.Println("Common coin failed to create hash for round", round, err)
 		}
 
 		// Verify if the received signature share is valid
 		if err := request.sig.Verify(hash, cc.keyMeta); err != nil {
-			// log.Print("Common coin couldn't verify signature share from node", sender)
+			log.Print("Common coin couldn't verify signature share from node", sender)
 			continue
 		}
 
@@ -84,12 +85,12 @@ func (cc *CommonCoin) Run() {
 				}
 				certificate, err := sigShares.Join(hash, cc.keyMeta)
 				if err != nil {
-					// log.Println("Common coin failed to create a certificate for round", round)
+					log.Println("Common coin failed to create a certificate for round", round)
 					continue
 				}
 				err = rsa.VerifyPKCS1v15(cc.keyMeta.PublicKey, crypto.SHA256, h[:], certificate)
 				if err != nil {
-					// log.Println("Common coin failed to verfiy created certificate for round", round)
+					log.Println("Common coin failed to verfiy created certificate for round", round)
 				}
 
 				// Compute the hash of the certificate, take the least significant bit and use that as coin.

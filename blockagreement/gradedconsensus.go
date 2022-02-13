@@ -1,7 +1,7 @@
 package blockagreement
 
 import (
-	"fmt"
+	"crypto"
 	"log"
 
 	"github.com/niclabs/tcrsa"
@@ -23,35 +23,7 @@ type gradedConsensus struct {
 	proposeProtocol *proposeProtocol            // Underlying sub-protocol
 }
 
-type leaderRequest struct {
-	round  int
-	answer chan *leaderAnswer // Channel for receiving an answer from the leader
-}
 
-type leaderAnswer struct {
-	round  int
-	leader int
-}
-
-type gradedConsensusResult struct {
-	blockShare *utils.BlockShare
-	commits    []*commitMessage
-	grade      int
-}
-
-type commitMessage struct {
-	sender     int
-	round      int
-	blockShare *utils.BlockShare
-	sig        *tcrsa.SigShare
-}
-
-type notifyMessage struct {
-	sender     int
-	round      int
-	blockShare *utils.BlockShare
-	commits    []*commitMessage
-}
 
 // Returns a new graded consensus protocol instance
 func NewGradedConsensus(n, nodeId, t, round int, nodeChans []chan *utils.Message, tickerChan chan int, vote *vote, killConsensus chan struct{}, thresthresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *gradedConsensusResult) *gradedConsensus {
@@ -159,18 +131,10 @@ func (gc *gradedConsensus) run() {
 
 // Creates a commit message and multicasts it
 func (gc *gradedConsensus) multicastCommitMessage(bs *utils.BlockShare) {
-	commitMes := &commitMessage{
-		sender:     gc.nodeId,
-		round:      gc.round,
-		blockShare: bs,
-		sig:        nil,
-	}
-	str := fmt.Sprintf("%p", commitMes)
-	sig, err := gc.proposeProtocol.sign(str)
+	commitMes, err := gc.newSignedCommitMessage(bs)
 	if err != nil {
-		log.Println(gc.nodeId, "failed to sign commit message")
+		log.Printf("%d failed to create commitMessage", gc.nodeId)
 	}
-	commitMes.sig = sig
 
 	message := &utils.Message{
 		Sender:  gc.nodeId,
@@ -203,9 +167,7 @@ func (gc *gradedConsensus) handleCommitMessages(commits map[int]*commitMessage) 
 			switch m := message.Payload.(type) {
 			case *commitMessage:
 				// Upon receiving the first valid commit message from a node add it to list of commits
-				// TODO: valid commit in own function
-				str := fmt.Sprintf("%p", m)
-				if gc.proposeProtocol.verify(str, m.sig) && m.blockShare.Block.Quality() >= gc.t+1 {
+				if gc.verifyCommitMessage(m) && m.blockShare.Block.Quality() >= gc.t+1 {
 					sender := m.sender
 					log.Println(gc.nodeId, "received commit from", sender)
 					if commits[sender] == nil {
@@ -323,5 +285,49 @@ func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
 		return false
 	}
 
+	return true
+}
+
+// Returns a new signed commitMessage
+func (gc *gradedConsensus) newSignedCommitMessage(bs *utils.BlockShare) (*commitMessage, error) {
+	// Create a new commitMessage
+	commitMes := &commitMessage{
+		sender:     gc.nodeId,
+		round:      gc.round,
+		blockShare: bs,
+		sig:        nil,
+	}
+
+	// Create a hash of the sender, round and blockshare
+	hash := commitMes.HashWithoutSig()
+	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	if err != nil {
+		log.Println(gc.nodeId, "was unanble to hash commitMessage:", err)
+		return nil, err
+	}
+
+	// Sign the hash
+	sigShare, err := gc.thresholdCrypto.keyShare.Sign(hashPadded, crypto.SHA256, gc.thresholdCrypto.keyMeta)
+	if err != nil {
+		log.Println(gc.nodeId, "was unable to sign commitMessage:", err)
+		return nil, err
+	}
+	commitMes.sig = sigShare
+
+	return commitMes, nil
+}
+
+// Verifys a given commitMessage
+func (gc *gradedConsensus) verifyCommitMessage(cm *commitMessage) bool {
+	hash := cm.HashWithoutSig()
+	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	if err != nil {
+		log.Println(gc.nodeId, "was unanble to hash commitMessage while verifying:", err)
+		return false
+	}
+	if err = cm.sig.Verify(hashPadded, gc.thresholdCrypto.keyMeta); err != nil {
+		log.Println(gc.nodeId, "received invalid commitMessage signature from", cm.sender)
+		return false
+	}
 	return true
 }
