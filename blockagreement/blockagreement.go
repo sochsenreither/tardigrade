@@ -7,7 +7,6 @@ import (
 	"github.com/sochsenreither/upgrade/utils"
 )
 
-
 type BlockAgreement struct {
 	n                       int                    // Number of nodes
 	nodeId                  int                    // Id of node
@@ -22,7 +21,7 @@ type BlockAgreement struct {
 	out                     chan *utils.BlockShare // Output channel
 	gradedConsensusProtocol *gradedConsensus       // Underlying sub-protocol
 	tickerChan              chan int               // Timer for synchronizing
-	delta                   time.Duration          // Round time
+	delta                   time.Duration          // Round timer
 }
 
 func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *utils.Message, blockShare *utils.BlockShare, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *utils.BlockShare, delta time.Duration, tickerChan chan int) *BlockAgreement {

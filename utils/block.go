@@ -75,7 +75,7 @@ func (bs *BlockShare) Hash() [32]byte {
 	return hash
 }
 
-// Returns a new empty pre-block with given size
+// Returns a new empty pre-block of size n
 func NewPreBlock(n int) *PreBlock {
 	var vec []*PreBlockMessage
 	for i := 0; i < n; i++ {
@@ -102,7 +102,6 @@ func NewBlockShare(block *PreBlock, pointer *BlockPointer) *BlockShare {
 	}
 }
 
-
 // Returns a new pre-block message
 func NewPreBlockMessage(mes []byte, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta) (*PreBlockMessage, error) {
 	mesHash := sha256.Sum256(mes)
@@ -116,7 +115,7 @@ func NewPreBlockMessage(mes []byte, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.Key
 	}
 	preBlockMes := &PreBlockMessage{
 		Message: mes,
-		Sig: sig,
+		Sig:     sig,
 	}
 	return preBlockMes, nil
 }

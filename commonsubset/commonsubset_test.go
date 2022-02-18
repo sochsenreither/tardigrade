@@ -81,7 +81,7 @@ func TestACSSameValue(t *testing.T) {
 
 	for i := 0; i < n; i++ {
 		tc := &ThresholdCrypto{
-			KeyShare: keyShares[i],
+			Sk: keyShares[i],
 			KeyMeta:  keyMeta,
 			SigShare: rbcs[i][0].Sig.SigShare,
 		}
@@ -188,7 +188,7 @@ func TestACSDifferentValues(t *testing.T) {
 
 	for i := 0; i < n; i++ {
 		tc := &ThresholdCrypto{
-			KeyShare: keyShares[i],
+			Sk: keyShares[i],
 			KeyMeta: keyMeta,
 			SigShare: rbcs[i][0].Sig.SigShare,
 		}

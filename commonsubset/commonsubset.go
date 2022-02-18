@@ -10,13 +10,12 @@ import (
 	"sync"
 
 	"github.com/niclabs/tcrsa"
-	"github.com/sochsenreither/upgrade/utils"
 	aba "github.com/sochsenreither/upgrade/binaryagreement"
 	rbc "github.com/sochsenreither/upgrade/broadcast"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 // TODO:
-// - change type of input/output
 // - hash size?
 
 type CommonSubset struct {
@@ -26,22 +25,21 @@ type CommonSubset struct {
 	tk        int                      // Threshold for distinct committee messages
 	round     int                      // Current round
 	committee map[int]bool             // List of committee members
-	input     *utils.BlockShare           // Input value
-	out       chan []*utils.BlockShare    // Output values
+	input     *utils.BlockShare        // Input value
+	out       chan []*utils.BlockShare // Output values
 	rbcs      []*rbc.ReliableBroadcast // N instances of reliable broadcast
 	abas      []*aba.BinaryAgreement   // N instances of binary agreement
 	tc        *ThresholdCrypto         // Personal signature, key meta and signing key
-	multicast func(msg *utils.Message)       // Function for multicasting messages
-	receive   func() *utils.Message          // Blocking function for receiving messages
+	multicast func(msg *utils.Message) // Function for multicasting messages
+	receive   func() *utils.Message    // Blocking function for receiving messages
 	sync.Mutex
 }
 
 type ThresholdCrypto struct {
-	KeyShare *tcrsa.KeyShare // Private signing key
+	Sk       *tcrsa.KeyShare // Private signing key
 	KeyMeta  *tcrsa.KeyMeta  // Contains public keys to verify signatures
 	SigShare *tcrsa.SigShare // Signature on node index signed by the dealer
 }
-
 
 type acsMessage struct {
 	sender   int
@@ -102,17 +100,17 @@ func (acs *CommonSubset) Run() {
 	commit := false
 
 	var acsFinished []*utils.BlockShare // return value of the inner acs protocol
-	var signature tcrsa.Signature    // combined signature of signature shares of committee members
-	var receivedHash []byte          // received hash on s by committee members
+	var signature tcrsa.Signature       // combined signature of signature shares of committee members
+	var receivedHash []byte             // received hash on s by committee members
 
-	rbcVals := make(map[int]*utils.BlockShare)                              // map containint rbc results
+	rbcVals := make(map[int]*utils.BlockShare)                   // map containint rbc results
 	s := make(map[int]bool)                                      // maps NodeId -> true/false
 	startAba := make(chan struct{}, acs.n)                       // channel to get unstarted aba instances started
-	acsOut := make(chan []*utils.BlockShare, 999)                   // channel for the output of the inner acs protocol
+	acsOut := make(chan []*utils.BlockShare, 999)                // channel for the output of the inner acs protocol
 	rbcDone := make(chan int, acs.n)                             // channel for notifying if a rbc instance terminated
 	abaRunning := make(map[int]bool)                             // tracks aba instances that are already running
 	abaFinished := make(map[int]bool)                            // tracks aba instances that terminated
-	messageChan := make(chan *utils.Message, acs.n*acs.n*9999)         // channel for routing incoming messages
+	messageChan := make(chan *utils.Message, acs.n*acs.n*9999)   // channel for routing incoming messages
 	sharesReceived := make(map[[32]byte]map[int]*tcrsa.SigShare) // Maps hash -> nodeId -> sig
 
 	messageHandler := func() {
@@ -367,7 +365,7 @@ func (acs *CommonSubset) signHash(hash [32]byte) (*tcrsa.SigShare, error) {
 		log.Printf("Node %d failed to create padded hash", acs.nodeId)
 		return nil, err
 	}
-	sig, err := acs.tc.KeyShare.Sign(paddedHash, crypto.SHA256, acs.tc.KeyMeta)
+	sig, err := acs.tc.Sk.Sign(paddedHash, crypto.SHA256, acs.tc.KeyMeta)
 	return sig, err
 }
 

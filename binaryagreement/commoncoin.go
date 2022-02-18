@@ -88,6 +88,7 @@ func (cc *CommonCoin) Run() {
 					log.Println("Common coin failed to create a certificate for round", round)
 					continue
 				}
+				// TODO: not really necessary to check right after creating?
 				err = rsa.VerifyPKCS1v15(cc.keyMeta.PublicKey, crypto.SHA256, h[:], certificate)
 				if err != nil {
 					log.Println("Common coin failed to verfiy created certificate for round", round)
