@@ -325,3 +325,9 @@ func (gc *gradedConsensus) verifyCommitMessage(cm *commitMessage) bool {
 func (gc *gradedConsensus) GetValue() *gradedConsensusResult {
 	return <-gc.out
 }
+
+// SetInput sets the input
+func (gc *gradedConsensus) SetInput(vote *vote) {
+	gc.proposeProtocol.SetInput(vote)
+	gc.vote = vote
+}

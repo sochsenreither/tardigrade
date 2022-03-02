@@ -9,8 +9,6 @@ import (
 	"github.com/sochsenreither/upgrade/utils"
 )
 
-// TODO: useless:  outs, killchan
-
 type proposeProtocol struct {
 	n               int                                     // Number of nodes
 	nodeId          int                                     // Id of node
@@ -398,4 +396,9 @@ func (p *proposeProtocol) verifyProposeMessage(pm *proposeMessage) bool {
 // GetValue returns the output of the protocol (blocking)
 func (p *proposeProtocol) GetValue() *utils.BlockShare {
 	return <-p.out
+}
+
+// SetInput sets the input
+func (p *proposeProtocol) SetInput(vote *vote) {
+	p.vote = vote
 }

@@ -23,9 +23,6 @@ type BlockAgreement struct {
 	delta                   time.Duration          // Round timer
 }
 
-// TODO: set input for underlying protos
-// TODO: output when there is no output? getValue always blocking
-
 func NewBlockAgreement(n, nodeId, t, kappa int, blockShare *utils.BlockShare, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, delta time.Duration, tickerChan chan int, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *BlockAgreement {
 	out := make(chan *utils.BlockShare, n*9999)
 	vote := &vote{
@@ -61,6 +58,7 @@ func (ba *BlockAgreement) Run() {
 		log.Println(ba.nodeId, "------ running GC round", ba.round, "------")
 		ba.updateVotes()
 		ba.gradedConsensusProtocol.run()
+		// TODO: may be blocking forever?
 		res := ba.gradedConsensusProtocol.GetValue()
 		if res.grade > 0 {
 			ba.blockShare = res.blockShare
@@ -100,12 +98,22 @@ func (ba *BlockAgreement) incrementRound() {
 	ba.gradedConsensusProtocol.proposeProtocol.round++
 }
 
-// GetValue returns the output of the protocol (blocking)
+// GetValue returns the output of the protocol. This shouldn't be called before the protocol had time to run
 func (ba *BlockAgreement) GetValue() *utils.BlockShare {
+	if len(ba.out) == 0 {
+		return nil
+	}
 	return <-ba.out
 }
 
 // SetInput sets the input
 func (ba *BlockAgreement) SetInput(bs *utils.BlockShare) {
+	vote := &vote{
+		round:      0,
+		blockShare: bs,
+		commits:    nil,
+	}
 	ba.blockShare = bs
+	// This also sets the vote for the propose protocol
+	ba.gradedConsensusProtocol.SetInput(vote)
 }
