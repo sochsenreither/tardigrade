@@ -9,41 +9,52 @@ import (
 	"github.com/sochsenreither/upgrade/utils"
 )
 
+// TODO: useless:  outs, killchan
+
 type proposeProtocol struct {
-	n               int                    // Number of nodes
-	nodeId          int                    // Id of node
-	t               int                    // Number of maximum faulty nodes
-	proposerId      int                    // Proposer id
-	round           int                    // Round number
-	time            int                    // Current time
-	nodeChans       []chan *utils.Message  // Communication channels of all nodes
-	tickerChan      chan int               // Ticker
-	vote            *vote                  // Vote of the current node
-	out             chan *utils.BlockShare // Output channel
-	killPropose     chan struct{}          // Termination channel
-	thresholdCrypto *thresholdCrypto       // Struct containing the secret key and key meta
+	n               int                                     // Number of nodes
+	nodeId          int                                     // Id of node
+	t               int                                     // Number of maximum faulty nodes
+	proposerId      int                                     // Proposer id
+	round           int                                     // Round number
+	time            int                                     // Current time
+	tickerChan      chan int                                // Ticker
+	vote            *vote                                   // Vote of the current node
+	out             chan *utils.BlockShare                  // Output channel
+	thresholdCrypto *thresholdCrypto                        // Struct containing the secret key and key meta
+	multicast       func(msg *utils.Message, params ...int) // Function for multicasting messages
+	receive         func() chan *utils.Message              // Blocking function for receiving messages
 }
 
 // Returns a new propose protocol instance
-func NewProposeProtocol(n, nodeId, t, proposerId, round int, nodeChans []chan *utils.Message, ticker chan int, vote *vote, out chan *utils.BlockShare, killPropose chan struct{}, thresthresholdCrypto *thresholdCrypto) *proposeProtocol {
+func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *proposeProtocol {
+	out := make(chan *utils.BlockShare, n)
 	p := &proposeProtocol{
 		n:               n,
 		nodeId:          nodeId,
 		t:               t,
 		proposerId:      proposerId,
 		round:           round,
-		nodeChans:       nodeChans,
 		time:            0,
 		tickerChan:      ticker,
 		vote:            vote,
 		out:             out,
-		killPropose:     killPropose,
 		thresholdCrypto: thresthresholdCrypto,
 	}
+
+	multicast := func(msg *utils.Message, params ...int) {
+		multicastFunc(nodeId, p.round, msg, params...)
+	}
+	receive := func() chan *utils.Message {
+		return receiveFunc(nodeId, p.round)
+	}
+
+	p.multicast = multicast
+	p.receive = receive
 	return p
 }
 
-func (p *proposeProtocol) run() {
+func (p proposeProtocol) run() {
 	// Keep track of received votes
 	votes := make(map[int]*voteMessage)
 	// At time 0:
@@ -56,20 +67,14 @@ func (p *proposeProtocol) run() {
 	}
 
 	for {
-		select {
-		case <-p.killPropose:
-			p.killPropose <- struct{}{}
-			log.Println(p.nodeId, "received kill signal.. terminating")
+		p.time = <-p.tickerChan
+		if p.time == 2 {
+			// All parties receive propose messages from the proposer. If they are valid they multicast them, otherwise output bottom.
+			p.handleProposals()
 			return
-		case p.time = <-p.tickerChan:
-			if p.time == 2 {
-				// All parties receive propose messages from the proposer. If they are valid they multicast them, otherwise output bottom.
-				p.handleProposals()
-				return
-			}
-			if p.time > 2 {
-				return
-			}
+		}
+		if p.time > 2 {
+			return
 		}
 	}
 }
@@ -88,20 +93,16 @@ func (p *proposeProtocol) sendVotes() {
 	}
 
 	log.Println(p.nodeId, "Sending vote to proposer")
-	p.nodeChans[p.proposerId] <- message
+	p.multicast(message, p.proposerId)
 }
 
 // Save received votes in map votes.
 func (p *proposeProtocol) handleVotes(votes map[int]*voteMessage) {
 	for {
 		select {
-		case <-p.killPropose:
-			p.killPropose <- struct{}{}
-			log.Println(p.nodeId, "received kill signal while waiting for votes.. terminating")
-			return
 		case <-p.tickerChan:
 			return
-		case voteMes := <-p.nodeChans[p.nodeId]:
+		case voteMes := <-p.receive():
 			switch v := voteMes.Payload.(type) {
 			case *voteMessage:
 				// If the signature is invalid or the pre-block is invalid discard the message
@@ -154,11 +155,7 @@ func (p *proposeProtocol) handleProposals() {
 	received := false
 	for {
 		select {
-		case <-p.killPropose:
-			p.killPropose <- struct{}{}
-			log.Println(p.nodeId, "received kill signal while waiting for proposal.. terminating")
-			return
-		case msg := <-p.nodeChans[p.nodeId]:
+		case msg := <-p.receive():
 			switch proposal := msg.Payload.(type) {
 			case *proposeMessage:
 				if proposal.sender == p.proposerId {
@@ -211,13 +208,6 @@ func (p *proposeProtocol) handleProposals() {
 				return
 			}
 		}
-	}
-}
-
-// Send message to every node
-func (p *proposeProtocol) multicast(message *utils.Message) {
-	for _, node := range p.nodeChans {
-		node <- message
 	}
 }
 
@@ -347,7 +337,7 @@ func (p *proposeProtocol) newSignedVoteMessage() (*voteMessage, error) {
 }
 
 // Returns a new signed proposeMessage
-func (p *proposeProtocol) newSignedProposeMessage(vote *vote,votes map[int]*voteMessage) (*proposeMessage, error) {
+func (p *proposeProtocol) newSignedProposeMessage(vote *vote, votes map[int]*voteMessage) (*proposeMessage, error) {
 	// Create new proposeMessage
 	proposeMes := &proposeMessage{
 		sender:       p.nodeId,
@@ -403,4 +393,9 @@ func (p *proposeProtocol) verifyProposeMessage(pm *proposeMessage) bool {
 		return false
 	}
 	return true
+}
+
+// GetValue returns the output of the protocol (blocking)
+func (p *proposeProtocol) GetValue() *utils.BlockShare {
+	return <-p.out
 }

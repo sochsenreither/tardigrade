@@ -31,12 +31,12 @@ type testProposeInstance struct {
 	ts              int
 	proposer        int
 	round           int
-	nodeChans       []chan *utils.Message
 	tickers         []chan int
 	outs            []chan *utils.BlockShare
 	ps              []*proposeProtocol
 	kills           []chan struct{}
 	thresholdCrypto []*thresholdCrypto
+	nodeChans       map[int][]chan *utils.Message
 }
 
 func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
@@ -45,12 +45,12 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		ts:              ts,
 		proposer:        proposer,
 		round:           round,
-		nodeChans:       make([]chan *utils.Message, n),
 		tickers:         make([]chan int, n),
 		outs:            make([]chan *utils.BlockShare, n),
 		ps:              make([]*proposeProtocol, n),
 		kills:           make([]chan struct{}, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
+		nodeChans:       make(map[int][]chan *utils.Message), // round -> chans
 	}
 
 	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
@@ -73,6 +73,44 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		}
 		pre.AddMessage(i, preMes)
 	}
+
+	var mu sync.Mutex
+	multicast := func(id, round int, msg *utils.Message, params ...int) {
+		go func() {
+			var chans []chan *utils.Message
+			mu.Lock()
+			if prop.nodeChans[round] == nil {
+				prop.nodeChans[round] = make([]chan *utils.Message, n)
+				for i := 0; i < n; i++ {
+					prop.nodeChans[round][i] = make(chan *utils.Message, 9999*n)
+				}
+			}
+			// Set channels to send to to different variable in order to prevent data/lock races
+			chans = append(chans, prop.nodeChans[round]...)
+			mu.Unlock()
+			if len(params) == 1 {
+				chans[params[0]] <- msg
+			} else {
+				for i := 0; i < n; i++ {
+					chans[i] <- msg
+				}
+			}
+		}()
+	}
+
+	receive := func(id, round int) chan *utils.Message {
+		mu.Lock()
+		if prop.nodeChans[round] == nil {
+			prop.nodeChans[round] = make([]chan *utils.Message, n)
+			for i := 0; i < n; i++ {
+				prop.nodeChans[round][i] = make(chan *utils.Message, 9999*n)
+			}
+		}
+		ch := prop.nodeChans[round][id]
+		mu.Unlock()
+		return ch
+	}
+
 	// TODO: change to real sig
 	h := pre.Hash()
 	blockPointer := utils.NewBlockPointer(h[:], []byte{0})
@@ -81,11 +119,10 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 	// Set up individual propose protocols
 	for i := 0; i < n; i++ {
 		vote := &vote{
-			round:       0,
-			blockShare:    blockShare,
-			commits: nil,
+			round:      0,
+			blockShare: blockShare,
+			commits:    nil,
 		}
-		prop.nodeChans[i] = make(chan *utils.Message, n*n)
 		prop.tickers[i] = make(chan int, n*n)
 		prop.outs[i] = make(chan *utils.BlockShare, n)
 		prop.kills[i] = make(chan struct{}, n)
@@ -93,7 +130,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 			keyShare: keyShares[i],
 			keyMeta:  keyMeta,
 		}
-		prop.ps[i] = NewProposeProtocol(n, i, ts, proposer, round, prop.nodeChans, prop.tickers[i], vote, prop.outs[i], prop.kills[i], prop.thresholdCrypto[i])
+		prop.ps[i] = NewProposeProtocol(n, i, ts, proposer, round, prop.tickers[i], vote, prop.thresholdCrypto[i], multicast, receive)
 	}
 
 	return prop
@@ -110,7 +147,7 @@ func TestPropEveryoneAgreesOnSameOutputInRoundOne(t *testing.T) {
 	go tickr(test.tickers, 25*time.Millisecond, 4)
 
 	for i := 0; i < test.n-test.ts; i++ {
-		val := <-test.outs[i]
+		val := test.ps[i].GetValue()
 		if val == nil {
 			t.Fatalf("Expected something")
 		}
@@ -118,7 +155,7 @@ func TestPropEveryoneAgreesOnSameOutputInRoundOne(t *testing.T) {
 			t.Fatalf("Received nil as output")
 		}
 		for _, m := range val.Block.Vec {
-			if m == nil || m.Message == nil{
+			if m == nil || m.Message == nil {
 				t.Errorf("Block doesn't have messages")
 			}
 			if !bytes.Equal(m.Message, []byte("test")) {
@@ -137,8 +174,8 @@ func TestPropFailedRunButStillTerminates(t *testing.T) {
 
 	helper := func() {
 		var wg sync.WaitGroup
-		// Start protocol for only 5 honest nodes
-		for i := 0; i < test.n-test.ts-1; i++ {
+		// Start protocol for only 2 honest nodes
+		for i := 0; i < 2; i++ {
 			wg.Add(1)
 			i := i
 			go func() {

@@ -9,44 +9,49 @@ import (
 )
 
 type gradedConsensus struct {
-	n               int                         // Number of nodes
-	nodeId          int                         // Id of node
-	t               int                         // Number of maximum faulty nodes
-	proposerId      int                         // Proposer id
-	round           int                         // Round number
-	nodeChans       []chan *utils.Message       // Communication channels of all nodes
-	vote            *vote                       // Input vote of the node
-	killConsensus   chan struct{}               // Termination channel
-	thresholdCrypto *thresholdCrypto            // Struct containing the secret key and key meta
-	leaderChan      chan *leaderRequest         // Channel for calling Leader(r)
-	out             chan *gradedConsensusResult // Output channel
-	proposeProtocol *proposeProtocol            // Underlying sub-protocol
+	n               int                                     // Number of nodes
+	nodeId          int                                     // Id of node
+	t               int                                     // Number of maximum faulty nodes
+	proposerId      int                                     // Proposer id
+	round           int                                     // Round number
+	vote            *vote                                   // Input vote of the node
+	thresholdCrypto *thresholdCrypto                        // Struct containing the secret key and key meta
+	leaderChan      chan *leaderRequest                     // Channel for calling Leader(r)
+	out             chan *gradedConsensusResult             // Output channel
+	proposeProtocol *proposeProtocol                        // Underlying sub-protocol
+	multicast       func(msg *utils.Message, params ...int) // Function for multicasting messages
+	receive         func() chan *utils.Message              // Blocking function for receiving messages
 }
 
-
-
 // Returns a new graded consensus protocol instance
-func NewGradedConsensus(n, nodeId, t, round int, nodeChans []chan *utils.Message, tickerChan chan int, vote *vote, killConsensus chan struct{}, thresthresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *gradedConsensusResult) *gradedConsensus {
-	proposeOut := make(chan *utils.BlockShare, 10)
-	killPropose := make(chan struct{}, 10)
-	propose := NewProposeProtocol(n, nodeId, t, -1, round, nodeChans, tickerChan, vote, proposeOut, killPropose, thresthresholdCrypto)
+func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *gradedConsensus {
+	out := make(chan *gradedConsensusResult, 100)
+	propose := NewProposeProtocol(n, nodeId, t, -1, round, tickerChan, vote, thresthresholdCrypto, multicastFunc, receiveFunc)
 
-	gradedConsensus := &gradedConsensus{
+	gc := &gradedConsensus{
 		n:               n,
 		nodeId:          nodeId,
 		t:               t,
 		proposerId:      -1,
 		round:           round,
-		nodeChans:       nodeChans,
 		vote:            vote,
-		killConsensus:   killConsensus,
 		thresholdCrypto: thresthresholdCrypto,
 		leaderChan:      leaderChan,
 		out:             out,
 		proposeProtocol: propose,
 	}
 
-	return gradedConsensus
+	multicast := func(msg *utils.Message, params ...int) {
+		multicastFunc(nodeId, gc.round, msg, params...)
+	}
+	receive := func() chan *utils.Message {
+		return receiveFunc(nodeId, gc.round)
+	}
+
+	gc.multicast = multicast
+	gc.receive = receive
+
+	return gc
 }
 
 func (gc *gradedConsensus) run() {
@@ -61,6 +66,7 @@ func (gc *gradedConsensus) run() {
 		answer: answer,
 	}
 	leaderResponse := <-answer
+	log.Printf("Node %d is leader", leaderResponse.leader)
 	gc.proposerId = leaderResponse.leader
 	gc.proposeProtocol.proposerId = leaderResponse.leader
 
@@ -68,7 +74,7 @@ func (gc *gradedConsensus) run() {
 	gc.proposeProtocol.run()
 
 	// At time 3:
-	proposeOut := <-gc.proposeProtocol.out
+	proposeOut := gc.proposeProtocol.GetValue()
 	// multicast received output (if any)
 	if proposeOut != nil {
 		log.Println(gc.nodeId, "received output from propose and multicasts it")
@@ -92,11 +98,6 @@ func (gc *gradedConsensus) run() {
 	// If a valid notify has been received output and terminate
 	for {
 		select {
-		case <-gc.killConsensus:
-			gc.proposeProtocol.killPropose <- struct{}{}
-			gc.killConsensus <- struct{}{}
-			log.Println(gc.nodeId, "received kill signal.. terminating")
-			return
 		case gc.proposeProtocol.time = <-gc.proposeProtocol.tickerChan:
 			// Time 5:
 			// If no notify was received output grade 0 and terminate.
@@ -108,7 +109,7 @@ func (gc *gradedConsensus) run() {
 			log.Println(gc.nodeId, "didn't receive any notify")
 			gc.out <- result
 			return
-		case message := <-gc.nodeChans[gc.nodeId]:
+		case message := <-gc.receive():
 			switch m := message.Payload.(type) {
 			case *notifyMessage:
 				result := &gradedConsensusResult{
@@ -145,25 +146,13 @@ func (gc *gradedConsensus) multicastCommitMessage(bs *utils.BlockShare) {
 	gc.multicast(message)
 }
 
-// Sends a given message to all nodes
-func (gc *gradedConsensus) multicast(message *utils.Message) {
-	for _, node := range gc.nodeChans {
-		node <- message
-	}
-}
-
 // Handles incoming commit messages
 func (gc *gradedConsensus) handleCommitMessages(commits map[int]*commitMessage) {
 	for {
 		select {
-		case <-gc.killConsensus:
-			gc.proposeProtocol.killPropose <- struct{}{}
-			gc.killConsensus <- struct{}{}
-			log.Println(gc.nodeId, "received kill signal.. terminating")
-			return
 		case gc.proposeProtocol.time = <-gc.proposeProtocol.tickerChan:
 			return
-		case message := <-gc.nodeChans[gc.nodeId]:
+		case message := <-gc.receive():
 			switch m := message.Payload.(type) {
 			case *commitMessage:
 				// Upon receiving the first valid commit message from a node add it to list of commits
@@ -330,4 +319,9 @@ func (gc *gradedConsensus) verifyCommitMessage(cm *commitMessage) bool {
 		return false
 	}
 	return true
+}
+
+// GetValue returns the output of the protocol (blocking)
+func (gc *gradedConsensus) GetValue() *gradedConsensusResult {
+	return <-gc.out
 }

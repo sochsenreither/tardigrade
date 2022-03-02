@@ -11,28 +11,29 @@ type BlockAgreement struct {
 	n                       int                    // Number of nodes
 	nodeId                  int                    // Id of node
 	t                       int                    // Number of maximum faulty nodes
-	round                   int                    // Round number
+	round                   int                    // Round number of BA, not the top protocol
 	kappa                   int                    // Security parameter
-	nodeChans               []chan *utils.Message  // Communication channels of all nodes
 	blockShare              *utils.BlockShare      // Input pre-block of the node
 	commits                 []*commitMessage       // List of commit messages received from GC
 	thresholdCrypto         *thresholdCrypto       // Struct containing the secret key and key meta
 	leaderChan              chan *leaderRequest    // Channel for calling Leader(r)
 	out                     chan *utils.BlockShare // Output channel
-	gradedConsensusProtocol *gradedConsensus       // Underlying sub-protocol
+	gradedConsensusProtocol *gradedConsensus       // Underlying protocol
 	tickerChan              chan int               // Timer for synchronizing
 	delta                   time.Duration          // Round timer
 }
 
-func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *utils.Message, blockShare *utils.BlockShare, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, out chan *utils.BlockShare, delta time.Duration, tickerChan chan int) *BlockAgreement {
-	killConsensus := make(chan struct{}, 10)
-	gradedConsensusOut := make(chan *gradedConsensusResult, 1)
+// TODO: set input for underlying protos
+// TODO: output when there is no output? getValue always blocking
+
+func NewBlockAgreement(n, nodeId, t, kappa int, blockShare *utils.BlockShare, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, delta time.Duration, tickerChan chan int, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *BlockAgreement {
+	out := make(chan *utils.BlockShare, n*9999)
 	vote := &vote{
 		round:      0,
 		blockShare: blockShare,
 		commits:    nil,
 	}
-	gradedConsensus := NewGradedConsensus(n, nodeId, t, 0, nodeChans, tickerChan, vote, killConsensus, thresholdCrypto, leaderChan, gradedConsensusOut)
+	gradedConsensus := NewGradedConsensus(n, nodeId, t, 0, tickerChan, vote, thresholdCrypto, leaderChan, multicastFunc, receiveFunc)
 
 	blockAgreement := &BlockAgreement{
 		n:                       n,
@@ -40,7 +41,6 @@ func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *utils.Message,
 		t:                       t,
 		round:                   0,
 		kappa:                   kappa,
-		nodeChans:               nodeChans,
 		blockShare:              blockShare,
 		thresholdCrypto:         thresholdCrypto,
 		leaderChan:              leaderChan,
@@ -53,9 +53,7 @@ func NewBlockAgreement(n, nodeId, t, kappa int, nodeChans []chan *utils.Message,
 	return blockAgreement
 }
 
-func (ba *BlockAgreement) run() {
-	// Clean up communication channel
-	ba.nodeChans[ba.nodeId] = make(chan *utils.Message, 1000)
+func (ba *BlockAgreement) Run() {
 
 	for ba.round < ba.kappa {
 		// At time 5r:
@@ -63,7 +61,7 @@ func (ba *BlockAgreement) run() {
 		log.Println(ba.nodeId, "------ running GC round", ba.round, "------")
 		ba.updateVotes()
 		ba.gradedConsensusProtocol.run()
-		res := <-ba.gradedConsensusProtocol.out
+		res := ba.gradedConsensusProtocol.GetValue()
 		if res.grade > 0 {
 			ba.blockShare = res.blockShare
 			ba.commits = res.commits
@@ -76,9 +74,7 @@ func (ba *BlockAgreement) run() {
 		// At time 5(r+1):
 		// If grade received from GC is 2 output the corresponding block. Set r = r+1.
 		ba.incrementRound()
-		for len(ba.nodeChans[ba.nodeId]) > 0 {
-			<-ba.nodeChans[ba.nodeId]
-		}
+
 		// Wait one tick because GC finishes in 4 Ticks TODO: fix this?
 		<-ba.tickerChan
 	}
@@ -102,4 +98,14 @@ func (ba *BlockAgreement) incrementRound() {
 	ba.round++
 	ba.gradedConsensusProtocol.round++
 	ba.gradedConsensusProtocol.proposeProtocol.round++
+}
+
+// GetValue returns the output of the protocol (blocking)
+func (ba *BlockAgreement) GetValue() *utils.BlockShare {
+	return <-ba.out
+}
+
+// SetInput sets the input
+func (ba *BlockAgreement) SetInput(bs *utils.BlockShare) {
+	ba.blockShare = bs
 }

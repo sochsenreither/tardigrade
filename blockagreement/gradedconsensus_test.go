@@ -2,6 +2,7 @@ package blockagreement
 
 import (
 	"crypto"
+	"math/rand"
 	"crypto/sha256"
 	"fmt"
 	"sync"
@@ -16,11 +17,9 @@ type testGradedConsensusInstance struct {
 	n               int
 	ts              int
 	round           int
-	nodeChans       []chan *utils.Message
+	nodeChans       map[int][]chan *utils.Message
 	tickers         []chan int
-	outs            []chan *gradedConsensusResult
 	gcs             []*gradedConsensus
-	kills           []chan struct{}
 	thresholdCrypto []*thresholdCrypto
 	leaderChan      chan *leaderRequest
 }
@@ -30,11 +29,9 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 		n:               n,
 		ts:              ts,
 		round:           round,
-		nodeChans:       make([]chan *utils.Message, n),
+		nodeChans:       make(map[int][]chan *utils.Message),
 		tickers:         make([]chan int, n),
-		outs:            make([]chan *gradedConsensusResult, n),
 		gcs:             make([]*gradedConsensus, n),
-		kills:           make([]chan struct{}, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
 		leaderChan:      make(chan *leaderRequest, n),
 	}
@@ -59,6 +56,45 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 		}
 		pre.AddMessage(i, preMes)
 	}
+
+	var mu sync.Mutex
+	multicast := func(id, round int, msg *utils.Message, params ...int) {
+		go func() {
+			var chans []chan *utils.Message
+			mu.Lock()
+			if gc.nodeChans[round] == nil {
+				gc.nodeChans[round] = make([]chan *utils.Message, n)
+				for i := 0; i < n; i++ {
+					gc.nodeChans[round][i] = make(chan *utils.Message, 9999*n)
+				}
+			}
+			// Set channels to send to to different variable in order to prevent data/lock races
+			chans = append(chans, gc.nodeChans[round]...)
+			mu.Unlock()
+			if len(params) == 1 {
+				chans[params[0]] <- msg
+			} else {
+				for i := 0; i < n; i++ {
+					chans[i] <- msg
+				}
+			}
+		}()
+	}
+
+	receive := func(id, round int) chan *utils.Message {
+		mu.Lock()
+		if gc.nodeChans[round] == nil {
+			gc.nodeChans[round] = make([]chan *utils.Message, n)
+			for i := 0; i < n; i++ {
+				gc.nodeChans[round][i] = make(chan *utils.Message, 9999*n)
+			}
+		}
+		ch := gc.nodeChans[round][id]
+		mu.Unlock()
+		return ch
+	}
+
+
 	// TODO: change to real sig
 	h := pre.Hash()
 	blockPointer := utils.NewBlockPointer(h[:], []byte{0})
@@ -71,24 +107,22 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 			blockShare: blockShare,
 			commits:  nil,
 		}
-		gc.nodeChans[i] = make(chan *utils.Message, n*n)
 		gc.tickers[i] = make(chan int, n*n*n)
-		gc.outs[i] = make(chan *gradedConsensusResult, n)
-		gc.kills[i] = make(chan struct{}, n)
 		gc.thresholdCrypto[i] = &thresholdCrypto{
 			keyShare: keyShares[i],
 			keyMeta:  keyMeta,
 		}
-		gc.gcs[i] = NewGradedConsensus(n, i, ts, round, gc.nodeChans, gc.tickers[i], vote, gc.kills[i], gc.thresholdCrypto[i], gc.leaderChan, gc.outs[i])
+		gc.gcs[i] = NewGradedConsensus(n, i, ts, round, gc.tickers[i], vote, gc.thresholdCrypto[i], gc.leaderChan, multicast, receive)
 	}
 
 	return gc
 }
 
 func TestGCEveryoneAgreesOnSameOutputInRoundOneWithGrade2(t *testing.T) {
-	testGC := newTestGradedConsensusInstance(4, 1, 0)
+	n := 4
+	testGC := newTestGradedConsensusInstance(n, 1, 0)
 
-	go testLeader(testGC.leaderChan)
+	go testLeader(n, testGC.leaderChan)
 	go tickr(testGC.tickers, 25*time.Millisecond, 10)
 	for i := 0; i < testGC.n-testGC.ts; i++ {
 		go testGC.gcs[i].run()
@@ -96,7 +130,7 @@ func TestGCEveryoneAgreesOnSameOutputInRoundOneWithGrade2(t *testing.T) {
 	start := time.Now()
 
 	for i := 0; i < testGC.n-testGC.ts; i++ {
-		grade := <-testGC.outs[i]
+		grade := testGC.gcs[i].GetValue()
 		if grade.grade != 2 {
 			t.Errorf("Node %d got grade %d, expected %d", i, grade.grade, 2)
 		}
@@ -108,7 +142,8 @@ func TestGCEveryoneAgreesOnSameOutputInRoundOneWithGrade2(t *testing.T) {
 }
 
 func TestGCFailedRoundButStillTerminates(t *testing.T) {
-	test := newTestGradedConsensusInstance(4, 1, 0)
+	n := 4
+	test := newTestGradedConsensusInstance(n, 1, 0)
 	timeout := time.After(200 * time.Millisecond)
 	done := make(chan struct{})
 
@@ -124,7 +159,7 @@ func TestGCFailedRoundButStillTerminates(t *testing.T) {
 				test.gcs[i].run()
 			}()
 		}
-		go testLeader(test.leaderChan)
+		go testLeader(n, test.leaderChan)
 		go tickr(test.tickers, 25*time.Millisecond, 6)
 		wg.Wait()
 		fmt.Println("Execution time:", time.Since(start))
@@ -143,11 +178,12 @@ func TestGCFailedRoundButStillTerminates(t *testing.T) {
 }
 
 // Dummy leader who just responds with 0
-func testLeader(in chan *leaderRequest) {
+func testLeader(n int, in chan *leaderRequest) {
+	num := rand.Intn(n)
 	for request := range in {
 		answer := &leaderAnswer{
 			round:  request.round,
-			leader: 0,
+			leader: num,
 		}
 		request.answer <- answer
 	}
