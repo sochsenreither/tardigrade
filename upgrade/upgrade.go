@@ -36,8 +36,9 @@ type tcs struct {
 	keyMeta *tcrsa.KeyMeta       // KeyMeta containig pks for verifying
 	proof   *tcrsa.SigShare      // Signature on the node index signed by the dealer
 	sigSk   *tcrsa.KeyShare      // Private signing key
-	encSk   *tcpaillier.KeyShare // Private encryption key
-	encPk   *tcpaillier.PubKey   // Public encryption key
+	encSk   tcpaillier.KeyShare // Private encryption key
+	encPk   tcpaillier.PubKey   // Public encryption key
+	sync.Mutex
 }
 
 type UpgradeConfig struct {
@@ -106,7 +107,6 @@ func NewABC(cfg *UpgradeConfig, acs []*acs.CommonSubset, ba []*bla.BlockAgreemen
 }
 
 func (abc *ABC) Run(maxRound int) {
-	// TODO: data race here?
 	stop := make(chan struct{}, maxRound*99)
 	var wg sync.WaitGroup
 	round := 0
@@ -148,7 +148,9 @@ func (abc *ABC) runProtocol(r int) {
 	// parallel and one agent of round x blocking every other agent in rounds y != x when taking
 	// the lock.
 	var mu sync.Mutex
+	abc.Lock()
 	abc.locks[r] = &mu
+	abc.Unlock()
 
 	largePb := utils.NewPreBlock(abc.cfg.n)            // large pre-block
 	readyLarge := false                                // Set when n-t-quality pre-block is received
@@ -163,7 +165,6 @@ func (abc *ABC) runProtocol(r int) {
 	decChan := make(chan [][]*tcpaillier.DecryptionShare, abc.cfg.n*99)
 
 	// Listener functions that handles incoming messages
-	// TODO: check for data races
 	listener := func() {
 		// Maps hash(block) -> nodeId -> sigShare
 		blocksReceived := make(map[[32]byte]map[int]*tcrsa.SigShare)
@@ -177,7 +178,10 @@ func (abc *ABC) runProtocol(r int) {
 					abc.handleSmallBlockMessage(r, m, smallPb, &readySmall, abc.locks[r], readyChan)
 				}
 			case *pointerMessage:
-				abc.handlePointerMessage(r, m, &ptr, abc.locks[r], ptrChan)
+				abc.Lock()
+				l := abc.locks[r]
+				abc.Unlock()
+				abc.handlePointerMessage(r, m, &ptr, l, ptrChan)
 			case *committeeMessage:
 				largeBlockChan <- m.preBlock
 				abc.handleCommitteeMessage(r, m, &ptr, mesRec, blocksReceived, abc.locks[r], ptrChan)
@@ -257,7 +261,7 @@ func (abc *ABC) runProtocol(r int) {
 	//log.Printf("Node %d: received output from ACS. len: %d", abc.cfg.nodeId, len(acsOutput))
 	if len(acsOutput) == 1 {
 		if abc.cfg.committee[abc.cfg.nodeId] {
-			go abc.waitForMatchingBlock(r, acsOutput[0].Pointer, largeBlockChan)
+			abc.waitForMatchingBlock(r, acsOutput[0].Pointer, largeBlockChan)
 		}
 		for pb := range pbChan {
 			h := pb.Hash()

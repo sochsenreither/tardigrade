@@ -37,7 +37,7 @@ type testConfig struct {
 	keySharesSig tcrsa.KeyShareList     // List of keyShares of the signature scheme
 	keyMeta      *tcrsa.KeyMeta         // keyMeta of the signature scheme
 	keySharesEnc []*tcpaillier.KeyShare // List of keyShares of the encryption scheme
-	pk           *tcpaillier.PubKey     // public key of the encryption scheme
+	pk           tcpaillier.PubKey     // public key of the encryption scheme
 	signedIDs    []*tcrsa.SigShare      // List of signed node ids by the dealer
 }
 
@@ -89,8 +89,8 @@ func TestProposeTxs(t *testing.T) {
 func TestSimpleTest(t *testing.T) {
 	// Note: Increase keysize of pk enc when increasing number of nodes or tx size
 	n := 7
-	delta := 40
-	lambda := 500
+	delta := 100
+	lambda := 1000
 	txSize := 8
 	cfg := setupConfig(n, 0, 0, 1, delta, 0, lambda, txSize)
 
@@ -207,7 +207,7 @@ func setupConfig(n, ta, ts, kappa, delta, epsilon, lambda int, txSize int) *test
 		keySharesSig: keySharesSig,
 		keyMeta:      keyMeta,
 		keySharesEnc: keySharesEnc,
-		pk:           pk,
+		pk:           *pk,
 		signedIDs:    signedIds,
 		txSize:       txSize,
 	}
@@ -330,7 +330,7 @@ func setupABC(cfg *testConfig, acss [][]*acs.CommonSubset, blas [][]*bla.BlockAg
 			keyMeta: cfg.keyMeta,
 			proof:   cfg.signedIDs[i],
 			sigSk:   cfg.keySharesSig[i],
-			encSk:   cfg.keySharesEnc[i],
+			encSk:   *cfg.keySharesEnc[i],
 			encPk:   cfg.pk,
 		}
 		ucfg := &UpgradeConfig{

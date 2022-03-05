@@ -60,7 +60,10 @@ func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thr
 		multicastFunc(aba.nodeId, instance, aba.round, msg)
 	}
 	receive := func() *AbaMessage {
-		return receiveFunc(aba.nodeId, instance, aba.round)
+		aba.Lock()
+		defer aba.Unlock()
+		r := aba.round
+		return receiveFunc(aba.nodeId, instance, r)
 	}
 
 	aba.multicast = multicast
@@ -183,7 +186,9 @@ func (aba *BinaryAgreement) Run() {
 			est = coin
 		}
 
+		aba.Lock()
 		aba.round++
+		aba.Unlock()
 	}
 }
 
