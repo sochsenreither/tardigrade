@@ -42,7 +42,6 @@ func TestACSSameValue(t *testing.T) {
 	abas := setupAba(n, ta, keyShares, keyMeta, coin, &mu)
 	rbcs := setupRbc(n, ta, keyShares, keyMeta, coin, &mu, []*utils.BlockShare{blockShare,blockShare,blockShare,blockShare}, committee)
 
-	outs := make(map[int]chan []*utils.BlockShare)
 	nodeChans := make(map[int][]chan *utils.Message) // round -> chans
 	acs := make(map[int]*CommonSubset)
 
@@ -93,8 +92,7 @@ func TestACSSameValue(t *testing.T) {
 			Epsilon: 0,
 			Round:   0,
 		}
-		outs[i] = make(chan []*utils.BlockShare, 100)
-		acs[i] = NewACS(cfg, committee, blockShare, outs[i], rbcs[i], abas[i], tc, multicast, receive)
+		acs[i] = NewACS(cfg, committee, blockShare, rbcs[i], abas[i], tc, multicast, receive)
 	}
 
 	start := time.Now()
@@ -111,7 +109,7 @@ func TestACSSameValue(t *testing.T) {
 	var returnHash [32]byte
 
 	for i := 0; i < n; i++ {
-		got := acs[i].getValue()
+		got := acs[i].GetValue()
 		if len(got) != 1 {
 			t.Errorf("Expected only one return value, got %d", len(got))
 		}
@@ -149,7 +147,6 @@ func TestACSDifferentValues(t *testing.T) {
 	abas := setupAba(n, ta, keyShares, keyMeta, coin, &mu)
 	rbcs := setupRbc(n, ta, keyShares, keyMeta, coin, &mu, blockShares, committee)
 
-	outs := make(map[int]chan []*utils.BlockShare)
 	nodeChans := make(map[int][]chan *utils.Message) // round -> chans
 	acs := make(map[int]*CommonSubset)
 
@@ -200,8 +197,7 @@ func TestACSDifferentValues(t *testing.T) {
 				Epsilon:  0,
 				Round:    0,
 			}
-		outs[i] = make(chan []*utils.BlockShare, 100)
-		acs[i] = NewACS(cfg, committee, blockShares[i], outs[i], rbcs[i], abas[i], tc, multicast, receive)
+		acs[i] = NewACS(cfg, committee, blockShares[i], rbcs[i], abas[i], tc, multicast, receive)
 	}
 
 	start := time.Now()
@@ -217,7 +213,7 @@ func TestACSDifferentValues(t *testing.T) {
 	fmt.Println("Execution time:", time.Since(start))
 
 	for i := 0; i < n; i++ {
-		got := acs[i].getValue()
+		got := acs[i].GetValue()
 		if len(got) != len(blockShares) {
 			t.Errorf("Got output that doesn't match input")
 		}
@@ -232,7 +228,6 @@ func TestACSDifferentValues(t *testing.T) {
 func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, mu *sync.Mutex) map[int][]*aba.BinaryAgreement {
 	abas := make(map[int][]*aba.BinaryAgreement)
 	nodeChans := make(map[int]map[int][]chan *aba.AbaMessage) // round -> instance -> chans
-	outs := make(map[int][]chan int)
 
 	multicast := func(id, instance, round int, msg *aba.AbaMessage) {
 		go func() {
@@ -280,10 +275,8 @@ func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 			KeyShare: keyShares[i],
 			KeyMeta:  keyMeta,
 		}
-		outs[i] = make([]chan int, n)
 		for j := 0; j < n; j++ {
-			outs[i][j] = make(chan int, 100)
-			abas[i] = append(abas[i], aba.NewBinaryAgreement(n, i, ta, 0, j, coin, thresholdCrypto, multicast, receive, outs[i][j]))
+			abas[i] = append(abas[i], aba.NewBinaryAgreement(n, i, ta, 0, j, coin, thresholdCrypto, multicast, receive))
 		}
 	}
 
@@ -293,7 +286,6 @@ func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, mu *sync.Mutex, inputs []*utils.BlockShare, committee map[int]bool) map[int][]*rbc.ReliableBroadcast {
 	nodeChans := make(map[int]map[int][]chan *utils.Message) // maps round -> instance -> chans
 	broadcasts := make(map[int][]*rbc.ReliableBroadcast)
-	outs := make(map[int][]chan *utils.BlockShare)
 
 	multicast := func(id, instance, round int, msg *utils.Message) {
 		go func() {
@@ -355,7 +347,6 @@ func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 			SigShare: sig,
 			KeyMeta:  keyMeta,
 		}
-		outs[i] = make([]chan *utils.BlockShare, n)
 		for j := 0; j < n; j++ {
 			config := &rbc.ReliableBroadcastConfig{
 				N:        n,
@@ -366,8 +357,7 @@ func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 				SenderId: j,
 				Round:    0,
 			}
-			outs[i][j] = make(chan *utils.BlockShare, 100)
-			broadcasts[i] = append(broadcasts[i], rbc.NewReliableBroadcast(config, committee, outs[i][j], signature, multicast, receive))
+			broadcasts[i] = append(broadcasts[i], rbc.NewReliableBroadcast(config, committee, signature, multicast, receive))
 			if i == j {
 				broadcasts[i][j].SetValue(inputs[j])
 			}

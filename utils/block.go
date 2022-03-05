@@ -7,6 +7,10 @@ import (
 	"github.com/niclabs/tcrsa"
 )
 
+type Block struct {
+	Txs [][]byte
+}
+
 type PreBlock struct {
 	Vec []*PreBlockMessage
 }
@@ -24,6 +28,36 @@ type BlockPointer struct {
 type BlockShare struct {
 	Block   *PreBlock
 	Pointer *BlockPointer
+}
+
+// Hash returns a sha256 hash of the block
+func (block *Block) Hash() [32]byte {
+	var ret []byte
+	for _, tx := range block.Txs {
+		ret = append(ret, tx...)
+	}
+	hash := sha256.Sum256(ret)
+	return hash
+}
+
+// Print appends all transactions and returns them as one byte array
+func(block *Block) Print() []byte {
+	var ret []byte
+
+	for _, tx := range block.Txs {
+		ret = append(ret, tx...)
+	}
+
+	return ret
+}
+
+// TxCount returns the number of transactions in a block
+func (block *Block) TxCount(txSize int) int {
+	var txs []byte
+	for _, tx := range block.Txs {
+		txs = append(txs, tx...)
+	}
+	return len(txs) / txSize
 }
 
 // Adds a message to the pre-block at given node index
@@ -45,15 +79,15 @@ func (pre *PreBlock) Quality() (counter int) {
 
 // Concatenates all the messages and signatures and takes the hash of that byte array.
 func (pre *PreBlock) Hash() [32]byte {
-	var inp []byte
+	var ret []byte
 	for _, m := range pre.Vec {
 		if m != nil {
 			// append message and signature
 			b := append(m.Message, m.Sig.Xi...)
-			inp = append(inp, b...)
+			ret = append(ret, b...)
 		}
 	}
-	hash := sha256.Sum256(inp)
+	hash := sha256.Sum256(ret)
 	return hash
 }
 

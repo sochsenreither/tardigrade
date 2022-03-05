@@ -19,21 +19,17 @@ type testBlockAgreementInstance struct {
 	nodeChans       map[int][]chan *utils.Message
 	bas             []*BlockAgreement
 	thresholdCrypto []*thresholdCrypto
-	leaderChan      chan *leaderRequest
-	delta           time.Duration
+	delta           int
 	kappa           int
-	tickers         []chan int
 }
 
-func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta time.Duration) *testBlockAgreementInstance {
+func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta int) *testBlockAgreementInstance {
 	ba := &testBlockAgreementInstance{
 		n:               n,
 		ts:              ts,
 		nodeChans:       make(map[int][]chan *utils.Message),
 		bas:             make([]*BlockAgreement, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
-		leaderChan:      make(chan *leaderRequest),
-		tickers:         make([]chan int, n),
 		delta:           delta,
 		kappa:           kappa,
 	}
@@ -103,18 +99,13 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta time.
 
 	// Set up individual block agreement protocols
 	for i := 0; i < n; i++ {
-		ba.thresholdCrypto[i] = &thresholdCrypto{
-			keyShare: keyShares[i],
-			keyMeta:  keyMeta,
-		}
-		ba.tickers[i] = make(chan int, ba.kappa*ba.kappa*7)
-		ba.bas[i] = NewBlockAgreement(n, i, ts, ba.kappa, blockShare, ba.thresholdCrypto[i], ba.leaderChan, ba.delta, ba.tickers[i], multicast, receive)
+		ba.bas[i] = NewBlockAgreement(n, i, ts, ba.kappa, blockShare, keyShares[i], keyMeta, leader, ba.delta, multicast, receive)
 	}
 
 	return ba
 }
 
-func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta time.Duration, inputs [][]byte) *testBlockAgreementInstance {
+func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta int, inputs [][]byte) *testBlockAgreementInstance {
 	if len(inputs) != n {
 		panic("wrong number of inputs")
 	}
@@ -125,8 +116,6 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 		nodeChans:       make(map[int][]chan *utils.Message),
 		bas:             make([]*BlockAgreement, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
-		leaderChan:      make(chan *leaderRequest),
-		tickers:         make([]chan int, n),
 		delta:           delta,
 		kappa:           kappa,
 	}
@@ -136,6 +125,7 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 		panic(err)
 	}
 
+	// Setup valid input
 	for i := 0; i < n; i++ {
 		pre := utils.NewPreBlock(n)
 		messageHash := sha256.Sum256(inputs[i])
@@ -209,12 +199,8 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 
 	// Set up individual block agreement protocols
 	for i := 0; i < n; i++ {
-		ba.thresholdCrypto[i] = &thresholdCrypto{
-			keyShare: keyShares[i],
-			keyMeta:  keyMeta,
-		}
-		ba.tickers[i] = make(chan int, ba.kappa*ba.kappa*7)
-		ba.bas[i] = NewBlockAgreement(n, i, ts, ba.kappa, blockShares[i], ba.thresholdCrypto[i], ba.leaderChan, ba.delta, ba.tickers[i], multicast, receive)
+		ba.bas[i] = NewBlockAgreement(n, i, ts, ba.kappa, nil, keyShares[i], keyMeta, leader, ba.delta, multicast, receive)
+		ba.bas[i].SetInput(blockShares[i])
 	}
 
 	return ba
@@ -222,8 +208,7 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 
 func TestBAEveryoneOutputsSameBlock(t *testing.T) {
 	n := 3
-	killticker := make(chan struct{})
-	testBA := newTestBlockAgreementInstanceWithSamePreBlock(n, 0, 2, 20*time.Millisecond)
+	testBA := newTestBlockAgreementInstanceWithSamePreBlock(n, 0, 2, 20)
 
 	helper := func() {
 		var wg sync.WaitGroup
@@ -235,8 +220,6 @@ func TestBAEveryoneOutputsSameBlock(t *testing.T) {
 				testBA.bas[i].Run()
 			}()
 		}
-		go testLeader(n, testBA.leaderChan)
-		go baTicker(testBA.tickers, testBA.delta, 7*testBA.kappa, killticker)
 		wg.Wait()
 	}
 
@@ -255,14 +238,12 @@ func TestBAEveryoneOutputsSameBlock(t *testing.T) {
 		}
 		prevHash = val.Hash()
 	}
-	killticker <- struct{}{}
 }
 
 func TestBAEveryoneOutputsSameBlockWithDifferentInput(t *testing.T) {
 	n := 3
-	killticker := make(chan struct{})
 	inputs := [][]byte{[]byte("0"), []byte("1"), []byte("2")}
-	testBA := newTestBlockAgreementInstanceWithDifferentPreBlocks(n, 0, 2, 20*time.Millisecond, inputs)
+	testBA := newTestBlockAgreementInstanceWithDifferentPreBlocks(n, 0, 2, 20, inputs)
 
 	helper := func() {
 		var wg sync.WaitGroup
@@ -274,8 +255,6 @@ func TestBAEveryoneOutputsSameBlockWithDifferentInput(t *testing.T) {
 				testBA.bas[i].Run()
 			}()
 		}
-		go testLeader(n, testBA.leaderChan)
-		go baTicker(testBA.tickers, testBA.delta, 7*testBA.kappa, killticker)
 		wg.Wait()
 	}
 
@@ -294,7 +273,6 @@ func TestBAEveryoneOutputsSameBlockWithDifferentInput(t *testing.T) {
 		}
 		prevHash = val.Hash()
 	}
-	killticker <- struct{}{}
 }
 
 // func printBlock(pre *utils.PreBlock) {

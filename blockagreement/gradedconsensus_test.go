@@ -2,7 +2,6 @@ package blockagreement
 
 import (
 	"crypto"
-	"math/rand"
 	"crypto/sha256"
 	"fmt"
 	"sync"
@@ -21,7 +20,6 @@ type testGradedConsensusInstance struct {
 	tickers         []chan int
 	gcs             []*gradedConsensus
 	thresholdCrypto []*thresholdCrypto
-	leaderChan      chan *leaderRequest
 }
 
 func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstance {
@@ -33,7 +31,6 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 		tickers:         make([]chan int, n),
 		gcs:             make([]*gradedConsensus, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
-		leaderChan:      make(chan *leaderRequest, n),
 	}
 
 	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
@@ -112,7 +109,7 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 			keyShare: keyShares[i],
 			keyMeta:  keyMeta,
 		}
-		gc.gcs[i] = NewGradedConsensus(n, i, ts, round, gc.tickers[i], vote, gc.thresholdCrypto[i], gc.leaderChan, multicast, receive)
+		gc.gcs[i] = NewGradedConsensus(n, i, ts, round, gc.tickers[i], vote, gc.thresholdCrypto[i], leader, multicast, receive)
 	}
 
 	return gc
@@ -122,7 +119,6 @@ func TestGCEveryoneAgreesOnSameOutputInRoundOneWithGrade2(t *testing.T) {
 	n := 4
 	testGC := newTestGradedConsensusInstance(n, 1, 0)
 
-	go testLeader(n, testGC.leaderChan)
 	go tickr(testGC.tickers, 25*time.Millisecond, 10)
 	for i := 0; i < testGC.n-testGC.ts; i++ {
 		go testGC.gcs[i].run()
@@ -159,7 +155,6 @@ func TestGCFailedRoundButStillTerminates(t *testing.T) {
 				test.gcs[i].run()
 			}()
 		}
-		go testLeader(n, test.leaderChan)
 		go tickr(test.tickers, 25*time.Millisecond, 6)
 		wg.Wait()
 		fmt.Println("Execution time:", time.Since(start))
@@ -177,14 +172,7 @@ func TestGCFailedRoundButStillTerminates(t *testing.T) {
 	}
 }
 
-// Dummy leader who just responds with 0
-func testLeader(n int, in chan *leaderRequest) {
-	num := rand.Intn(n)
-	for request := range in {
-		answer := &leaderAnswer{
-			round:  request.round,
-			leader: num,
-		}
-		request.answer <- answer
-	}
+// Note: this is not random at all
+func leader(round, n int) int {
+	return round % n
 }

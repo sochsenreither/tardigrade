@@ -64,7 +64,8 @@ type ReliableBroadcastConfig struct {
 	Round    int
 }
 
-func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, out chan *utils.BlockShare, sig *Signature, multicastFunc func(nodeId, instance, round int, msg *utils.Message), receiveFunc func(nodeId, instance, round int) *utils.Message) *ReliableBroadcast {
+func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, sig *Signature, multicastFunc func(nodeId, instance, round int, msg *utils.Message), receiveFunc func(nodeId, instance, round int) *utils.Message) *ReliableBroadcast {
+	out := make(chan *utils.BlockShare, 100)
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
 	multicast := func(msg *utils.Message) {
 		multicastFunc(cfg.NodeId, cfg.SenderId, cfg.Round, msg)
@@ -325,7 +326,7 @@ func (rbc *ReliableBroadcast) isValidSignature(m *CMessage) bool {
 	return true
 }
 
-// GetValue returns the output of the broadcast (blocking)
+// GetValue returns the output of the protocol (blocking)
 func (rbc *ReliableBroadcast) GetValue() *utils.BlockShare {
 	return <-rbc.out
 }

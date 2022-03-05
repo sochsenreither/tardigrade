@@ -2,7 +2,7 @@ package blockagreement
 
 import (
 	"crypto"
-	"log"
+	// "log"
 
 	"github.com/niclabs/tcrsa"
 	"github.com/sochsenreither/upgrade/utils"
@@ -16,15 +16,15 @@ type gradedConsensus struct {
 	round           int                                     // Round number
 	vote            *vote                                   // Input vote of the node
 	thresholdCrypto *thresholdCrypto                        // Struct containing the secret key and key meta
-	leaderChan      chan *leaderRequest                     // Channel for calling Leader(r)
 	out             chan *gradedConsensusResult             // Output channel
 	proposeProtocol *proposeProtocol                        // Underlying sub-protocol
 	multicast       func(msg *utils.Message, params ...int) // Function for multicasting messages
 	receive         func() chan *utils.Message              // Blocking function for receiving messages
+	leader          func() int                     // Function to determin the leader
 }
 
 // Returns a new graded consensus protocol instance
-func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *gradedConsensus {
+func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, leaderFunc func(round, n int) int, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *gradedConsensus {
 	out := make(chan *gradedConsensusResult, 100)
 	propose := NewProposeProtocol(n, nodeId, t, -1, round, tickerChan, vote, thresthresholdCrypto, multicastFunc, receiveFunc)
 
@@ -36,7 +36,6 @@ func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote
 		round:           round,
 		vote:            vote,
 		thresholdCrypto: thresthresholdCrypto,
-		leaderChan:      leaderChan,
 		out:             out,
 		proposeProtocol: propose,
 	}
@@ -47,28 +46,26 @@ func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote
 	receive := func() chan *utils.Message {
 		return receiveFunc(nodeId, gc.round)
 	}
+	leader := func() int {
+		return leaderFunc(gc.round, n)
+	}
 
 	gc.multicast = multicast
 	gc.receive = receive
+	gc.leader = leader
 
 	return gc
 }
 
 func (gc *gradedConsensus) run() {
 	commits := make(map[int]*commitMessage)
-	answer := make(chan *leaderAnswer)
 	notifySent := make(chan bool, 1)
 
 	// At time 0:
 	// Call leader and run the propose protocol
-	gc.leaderChan <- &leaderRequest{
-		round:  gc.round,
-		answer: answer,
-	}
-	leaderResponse := <-answer
-	log.Printf("Node %d is leader", leaderResponse.leader)
-	gc.proposerId = leaderResponse.leader
-	gc.proposeProtocol.proposerId = leaderResponse.leader
+	leader := gc.leader()
+	gc.proposerId = leader
+	gc.proposeProtocol.proposerId = leader
 
 	// Update vote before running
 	gc.proposeProtocol.run()
@@ -77,7 +74,7 @@ func (gc *gradedConsensus) run() {
 	proposeOut := gc.proposeProtocol.GetValue()
 	// multicast received output (if any)
 	if proposeOut != nil {
-		log.Println(gc.nodeId, "received output from propose and multicasts it")
+		// log.Println("--GC--", gc.nodeId, "received output from propose and multicasts it")
 		gc.multicastCommitMessage(proposeOut)
 	}
 
@@ -106,7 +103,7 @@ func (gc *gradedConsensus) run() {
 				commits:    nil,
 				grade:      0,
 			}
-			log.Println(gc.nodeId, "didn't receive any notify")
+			// log.Println("--GC--", gc.nodeId, "didn't receive any notify")
 			gc.out <- result
 			return
 		case message := <-gc.receive():
@@ -122,7 +119,7 @@ func (gc *gradedConsensus) run() {
 					result.commits = m.commits
 					result.grade = 1
 				}
-				log.Println(gc.nodeId, "received notify and terminates. Grade:", result.grade)
+				// log.Println("--GC--", gc.nodeId, "received notify and terminates. Grade:", result.grade)
 				gc.out <- result
 				return
 			}
@@ -134,7 +131,7 @@ func (gc *gradedConsensus) run() {
 func (gc *gradedConsensus) multicastCommitMessage(bs *utils.BlockShare) {
 	commitMes, err := gc.newSignedCommitMessage(bs)
 	if err != nil {
-		log.Printf("%d failed to create commitMessage", gc.nodeId)
+		return
 	}
 
 	message := &utils.Message{
@@ -142,7 +139,7 @@ func (gc *gradedConsensus) multicastCommitMessage(bs *utils.BlockShare) {
 		Payload: commitMes,
 	}
 
-	log.Println(gc.nodeId, "multicasts commit")
+	// log.Println("--GC--", gc.nodeId, "multicasts commit")
 	gc.multicast(message)
 }
 
@@ -158,7 +155,7 @@ func (gc *gradedConsensus) handleCommitMessages(commits map[int]*commitMessage) 
 				// Upon receiving the first valid commit message from a node add it to list of commits
 				if gc.verifyCommitMessage(m) && m.blockShare.Block.Quality() >= gc.t+1 {
 					sender := m.sender
-					log.Println(gc.nodeId, "received commit from", sender)
+					// log.Println("--GC--", gc.nodeId, "received commit from", sender)
 					if commits[sender] == nil {
 						commits[sender] = m
 					}
@@ -219,7 +216,7 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 				Payload: notify,
 			}
 
-			log.Println(gc.nodeId, "multicasting notify and terminating. Grade: 2")
+			// log.Println("--GC--", gc.nodeId, "multicasting notify and terminating. Grade: 2")
 			gc.multicast(message)
 
 			result := &gradedConsensusResult{
@@ -247,7 +244,7 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
 	// 1:
 	if notify.blockShare.Block.Quality() < gc.n-gc.t {
-		log.Println(gc.nodeId, "received a notify that doesn't contain a valid pre-block")
+		// log.Println("--GC--", gc.nodeId, "received a notify that doesn't contain a valid pre-block")
 		return false
 	}
 	// 2:
@@ -257,7 +254,7 @@ func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
 	for _, commit := range notify.commits {
 		// 2.3:
 		if commit.round < gc.round {
-			log.Println(gc.nodeId, "received a notify that contains a commit message with a roudn number smaller than the current round")
+			// log.Println("--GC--", gc.nodeId, "received a notify that contains a commit message with a roudn number smaller than the current round")
 			return false
 		}
 		distinctNodes[commit.sender] = struct{}{}
@@ -265,12 +262,12 @@ func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
 	}
 	// 2.1:
 	if len(distinctPreBlocks) > 1 {
-		log.Println(gc.nodeId, "received a notify with more than one pre-block in the commits set")
+		// log.Println("--GC--", gc.nodeId, "received a notify with more than one pre-block in the commits set")
 		return false
 	}
 	// 2.2:
 	if len(distinctNodes) < gc.t+1 {
-		log.Println(gc.nodeId, "received a notify with commit messages from less than t+1 distinct nodes")
+		// log.Println("--GC--", gc.nodeId, "received a notify with commit messages from less than t+1 distinct nodes")
 		return false
 	}
 
@@ -291,14 +288,14 @@ func (gc *gradedConsensus) newSignedCommitMessage(bs *utils.BlockShare) (*commit
 	hash := commitMes.HashWithoutSig()
 	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
-		log.Println(gc.nodeId, "was unanble to hash commitMessage:", err)
+		// log.Println("--GC--", gc.nodeId, "was unanble to hash commitMessage:", err)
 		return nil, err
 	}
 
 	// Sign the hash
 	sigShare, err := gc.thresholdCrypto.keyShare.Sign(hashPadded, crypto.SHA256, gc.thresholdCrypto.keyMeta)
 	if err != nil {
-		log.Println(gc.nodeId, "was unable to sign commitMessage:", err)
+		// log.Println("--GC--", gc.nodeId, "was unable to sign commitMessage:", err)
 		return nil, err
 	}
 	commitMes.sig = sigShare
@@ -311,11 +308,11 @@ func (gc *gradedConsensus) verifyCommitMessage(cm *commitMessage) bool {
 	hash := cm.HashWithoutSig()
 	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
-		log.Println(gc.nodeId, "was unanble to hash commitMessage while verifying:", err)
+		// log.Println("--GC--", gc.nodeId, "was unanble to hash commitMessage while verifying:", err)
 		return false
 	}
 	if err = cm.sig.Verify(hashPadded, gc.thresholdCrypto.keyMeta); err != nil {
-		log.Println(gc.nodeId, "received invalid commitMessage signature from", cm.sender)
+		// log.Println("--GC--", gc.nodeId, "received invalid commitMessage signature from", cm.sender)
 		return false
 	}
 	return true

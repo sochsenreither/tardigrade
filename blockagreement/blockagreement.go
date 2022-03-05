@@ -1,9 +1,10 @@
 package blockagreement
 
 import (
-	"log"
+	// "log"
 	"time"
 
+	"github.com/niclabs/tcrsa"
 	"github.com/sochsenreither/upgrade/utils"
 )
 
@@ -16,21 +17,41 @@ type BlockAgreement struct {
 	blockShare              *utils.BlockShare      // Input pre-block of the node
 	commits                 []*commitMessage       // List of commit messages received from GC
 	thresholdCrypto         *thresholdCrypto       // Struct containing the secret key and key meta
-	leaderChan              chan *leaderRequest    // Channel for calling Leader(r)
 	out                     chan *utils.BlockShare // Output channel
 	gradedConsensusProtocol *gradedConsensus       // Underlying protocol
 	tickerChan              chan int               // Timer for synchronizing
-	delta                   time.Duration          // Round timer
+	delta                   int          // Round timer
+	ticker                  func()                 // Ticker function that ticks every delta milliseconds
 }
 
-func NewBlockAgreement(n, nodeId, t, kappa int, blockShare *utils.BlockShare, thresholdCrypto *thresholdCrypto, leaderChan chan *leaderRequest, delta time.Duration, tickerChan chan int, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *BlockAgreement {
+func NewBlockAgreement(n, nodeId, t, kappa int, blockShare *utils.BlockShare, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta, leaderFunc func(round, n int) int, delta int, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *BlockAgreement {
+	tcs := &thresholdCrypto{
+		keyShare: keyShare,
+		keyMeta: keyMeta,
+	}
+	tickerChan := make(chan int, 99999)
+	ticker := func() {
+
+		t := time.NewTicker(time.Duration(delta * int(time.Millisecond)))
+		c := 1
+
+		for range t.C {
+			// log.Printf("Node %d at tick %d", nodeId, c)
+			tickerChan <- c % 6
+			c++
+			if c == 7*kappa {
+				// log.Printf("Node %d ticker terminating", nodeId)
+				return
+			}
+		}
+	}
 	out := make(chan *utils.BlockShare, n*9999)
 	vote := &vote{
 		round:      0,
 		blockShare: blockShare,
 		commits:    nil,
 	}
-	gradedConsensus := NewGradedConsensus(n, nodeId, t, 0, tickerChan, vote, thresholdCrypto, leaderChan, multicastFunc, receiveFunc)
+	gradedConsensus := NewGradedConsensus(n, nodeId, t, 0, tickerChan, vote, tcs, leaderFunc, multicastFunc, receiveFunc)
 
 	blockAgreement := &BlockAgreement{
 		n:                       n,
@@ -39,23 +60,24 @@ func NewBlockAgreement(n, nodeId, t, kappa int, blockShare *utils.BlockShare, th
 		round:                   0,
 		kappa:                   kappa,
 		blockShare:              blockShare,
-		thresholdCrypto:         thresholdCrypto,
-		leaderChan:              leaderChan,
+		thresholdCrypto:         tcs,
 		out:                     out,
 		gradedConsensusProtocol: gradedConsensus,
 		tickerChan:              tickerChan,
 		delta:                   delta,
+		ticker:                  ticker,
 	}
 
 	return blockAgreement
 }
 
 func (ba *BlockAgreement) Run() {
+	go ba.ticker()
 
 	for ba.round < ba.kappa {
 		// At time 5r:
 		// Run GC and denote output.
-		log.Println(ba.nodeId, "------ running GC round", ba.round, "------")
+		// log.Println(ba.nodeId, "------ running GC round", ba.round, "------")
 		ba.updateVotes()
 		ba.gradedConsensusProtocol.run()
 		// TODO: may be blocking forever?
@@ -65,7 +87,7 @@ func (ba *BlockAgreement) Run() {
 			ba.commits = res.commits
 		}
 		if res.grade == 2 {
-			log.Println(ba.nodeId, "got grade 2, outputting block share")
+			// log.Println(ba.nodeId, "got grade 2, outputting block share")
 			ba.out <- res.blockShare
 		}
 
@@ -76,7 +98,7 @@ func (ba *BlockAgreement) Run() {
 		// Wait one tick because GC finishes in 4 Ticks TODO: fix this?
 		<-ba.tickerChan
 	}
-	log.Println(ba.nodeId, "terminating")
+	// log.Println(ba.nodeId, "terminating")
 }
 
 // Updates the votes for running the underlying protocols

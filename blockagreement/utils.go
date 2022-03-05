@@ -93,6 +93,10 @@ func (pm *proposeMessage) HashWithoutSig() [32]byte {
 	}
 	sort.Ints(keys)
 	for _, k := range keys {
+		if pm.voteMessages[k] == nil {
+			// TODO: bug? why can there be a vote == nil in here?
+			continue
+		}
 		h := pm.voteMessages[k].Hash()
 		vh = append(vh, h[:]...)
 	}
@@ -102,16 +106,6 @@ func (pm *proposeMessage) HashWithoutSig() [32]byte {
 	l = append(l, vh...)
 	hash := sha256.Sum256(l)
 	return hash
-}
-
-type leaderRequest struct {
-	round  int
-	answer chan *leaderAnswer // Channel for receiving an answer from the leader
-}
-
-type leaderAnswer struct {
-	round  int
-	leader int // Chosen leader
 }
 
 type gradedConsensusResult struct {

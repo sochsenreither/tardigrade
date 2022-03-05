@@ -3,6 +3,7 @@ package binaryagreement
 import (
 	"crypto"
 	"crypto/sha256"
+
 	// "log"
 	"strconv"
 	"sync"
@@ -10,12 +11,14 @@ import (
 	"github.com/niclabs/tcrsa"
 )
 
+// TODO: abstract common coin call
+
 type BinaryAgreement struct {
 	n               int                   // Number of nodes
 	nodeId          int                   // Id of node
 	t               int                   // Number of maximum faulty nodes
 	value           int                   // Initial input
-	round           int                   // Current round
+	round           int                   // Current round of aba, not the round of the top protocol
 	instance        int                   // Id of the current instance
 	coin            *CommonCoin           // Common coin for randomness
 	thresholdCrypto *ThresholdCrypto      // Struct containing the secret key and key meta
@@ -37,7 +40,8 @@ type ThresholdCrypto struct {
 	KeyMeta  *tcrsa.KeyMeta
 }
 
-func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thresholdCrypto *ThresholdCrypto, multicastFunc func(nodeId, instance, round int, msg *AbaMessage), receiveFunc func(nodeId, instance, round int) *AbaMessage, out chan int) *BinaryAgreement {
+func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thresholdCrypto *ThresholdCrypto, multicastFunc func(nodeId, instance, round int, msg *AbaMessage), receiveFunc func(nodeId, instance, round int) *AbaMessage) *BinaryAgreement {
+	out := make(chan int, 100)
 	aba := &BinaryAgreement{
 		n:               n,
 		nodeId:          nodeId,

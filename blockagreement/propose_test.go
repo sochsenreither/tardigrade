@@ -34,7 +34,6 @@ type testProposeInstance struct {
 	tickers         []chan int
 	outs            []chan *utils.BlockShare
 	ps              []*proposeProtocol
-	kills           []chan struct{}
 	thresholdCrypto []*thresholdCrypto
 	nodeChans       map[int][]chan *utils.Message
 }
@@ -48,7 +47,6 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		tickers:         make([]chan int, n),
 		outs:            make([]chan *utils.BlockShare, n),
 		ps:              make([]*proposeProtocol, n),
-		kills:           make([]chan struct{}, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
 		nodeChans:       make(map[int][]chan *utils.Message), // round -> chans
 	}
@@ -125,7 +123,6 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		}
 		prop.tickers[i] = make(chan int, n*n)
 		prop.outs[i] = make(chan *utils.BlockShare, n)
-		prop.kills[i] = make(chan struct{}, n)
 		prop.thresholdCrypto[i] = &thresholdCrypto{
 			keyShare: keyShares[i],
 			keyMeta:  keyMeta,

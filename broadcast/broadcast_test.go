@@ -39,7 +39,6 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 	var wg sync.WaitGroup
 
 	committee := make(map[int]bool)
-	outs := make([]chan *utils.BlockShare, n)
 	nodeChans := make(map[int]chan *utils.Message) // maps node -> message channel
 	broadcasts := make([]*ReliableBroadcast, n)
 	keyShares, keyMeta := setupKeys(n + 1)
@@ -86,9 +85,8 @@ func TestBroadcastOneInstanceWithByzantineNode(t *testing.T) {
 			SenderId: 0,
 			Round:    0,
 		}
-		outs[i] = make(chan *utils.BlockShare, 99)
 		nodeChans[i] = make(chan *utils.Message, 999)
-		broadcasts[i] = NewReliableBroadcast(config, committee, outs[i], signature, multicast, receive)
+		broadcasts[i] = NewReliableBroadcast(config, committee, signature, multicast, receive)
 	}
 	// create message with signature of node 0.
 	mes := []byte("foo")
@@ -126,7 +124,6 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	inputs := [4][]byte{[]byte("zero"), []byte("one"), []byte("two"), []byte("three")}
-	outs := make(map[int][]chan *utils.BlockShare)
 	nodeChans := make(map[int]map[int][]chan *utils.Message) // maps round -> instance -> chans
 	broadcasts := make(map[int][]*ReliableBroadcast)
 	keyShares, keyMeta := setupKeys(n + 1)
@@ -199,7 +196,6 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 			SigShare:     sig,
 			KeyMeta: keyMeta,
 		}
-		outs[i] = make([]chan *utils.BlockShare, n)
 		for j := 0; j < n; j++ {
 			config := &ReliableBroadcastConfig{
 				N:        n,
@@ -210,8 +206,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 				SenderId: j,
 				Round:    0,
 			}
-			outs[i][j] = make(chan *utils.BlockShare, 100)
-			broadcasts[i] = append(broadcasts[i], NewReliableBroadcast(config, committee, outs[i][j], signature, multicast, receive))
+			broadcasts[i] = append(broadcasts[i], NewReliableBroadcast(config, committee, signature, multicast, receive))
 			if i == j {
 				broadcasts[i][j].SetValue(blockShares[j])
 			}

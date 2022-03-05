@@ -17,7 +17,6 @@ func TestABASameValue(t *testing.T) {
 
 	abas := make(map[int][]*BinaryAgreement)
 	nodeChans := make(map[int]map[int][]chan *AbaMessage) // round -> instance -> chans
-	outs := make(map[int][]chan int)
 
 	multicast := func(id, instance, round int, msg *AbaMessage) {
 		go func() {
@@ -65,10 +64,8 @@ func TestABASameValue(t *testing.T) {
 			KeyShare: keyShares[i],
 			KeyMeta:  keyMeta,
 		}
-		outs[i] = make([]chan int, n)
 		for j := 0; j < n; j++ {
-			outs[i][j] = make(chan int, 100)
-			abas[i] = append(abas[i], NewBinaryAgreement(n, i, ta, 0, j, coin, thresholdCrypto, multicast, receive, outs[i][j]))
+			abas[i] = append(abas[i], NewBinaryAgreement(n, i, ta, 0, j, coin, thresholdCrypto, multicast, receive))
 		}
 	}
 	start := time.Now()
@@ -111,7 +108,6 @@ func TestABADifferentValues(t *testing.T) {
 
 	abas := make(map[int][]*BinaryAgreement)
 	nodeChans := make(map[int]map[int][]chan *AbaMessage) // round -> instance -> chans
-	outs := make(map[int][]chan int)
 
 	multicast := func(id, instance, round int, msg *AbaMessage) {
 		go func() {
@@ -159,10 +155,8 @@ func TestABADifferentValues(t *testing.T) {
 			KeyShare: keyShares[i],
 			KeyMeta:  keyMeta,
 		}
-		outs[i] = make([]chan int, n)
 		for j := 0; j < n; j++ {
-			outs[i][j] = make(chan int, 100)
-			abas[i] = append(abas[i], NewBinaryAgreement(n, i, ta, i%2, j, coin, thresholdCrypto, multicast, receive, outs[i][j]))
+			abas[i] = append(abas[i], NewBinaryAgreement(n, i, ta, i%2, j, coin, thresholdCrypto, multicast, receive))
 		}
 	}
 	start := time.Now()

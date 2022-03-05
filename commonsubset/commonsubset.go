@@ -5,7 +5,7 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
-	"log"
+	//"log"
 	"strconv"
 	"sync"
 
@@ -70,7 +70,8 @@ type ACSConfig struct {
 	Round   int
 }
 
-func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, out chan []*utils.BlockShare, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, multicastFunc func(nodeId, round int, msg *utils.Message), receiveFunc func(nodeId, round int) *utils.Message) *CommonSubset {
+func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, multicastFunc func(nodeId, round int, msg *utils.Message), receiveFunc func(nodeId, round int) *utils.Message) *CommonSubset {
+	out := make(chan []*utils.BlockShare, 100)
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
 	multicast := func(msg *utils.Message) {
 		multicastFunc(cfg.NodeId, cfg.Round, msg)
@@ -123,13 +124,13 @@ func (acs *CommonSubset) Run() {
 	go messageHandler()
 
 	handleAba := func(i int) {
-		// log.Printf("Node %d starting aba instance %d", acs.nodeId, i)
+		// // log.Printf("Node %d starting aba instance %d", acs.nodeId, i)
 		go acs.abas[i].Run()
 		acs.Lock()
 		abaRunning[i] = true
 		acs.Unlock()
 		abaOut := acs.abas[i].GetValue()
-		// log.Printf("Node %d received %d as value from aba instance %d", acs.nodeId, abaOut, i)
+		// // log.Printf("Node %d received %d as value from aba instance %d", acs.nodeId, abaOut, i)
 		acs.Lock()
 		abaFinished[i] = true
 		// If aba_i terminated with 1 as output, add it to s
@@ -148,10 +149,10 @@ func (acs *CommonSubset) Run() {
 	for i := 0; i < acs.n; i++ {
 		i := i
 		go func() {
-			// log.Printf("Node %d starting rbc instance %d", acs.nodeId, i)
+			// // log.Printf("Node %d starting rbc instance %d", acs.nodeId, i)
 			go acs.rbcs[i].Run()
 			rbcOut := acs.rbcs[i].GetValue()
-			// log.Printf("Node %d got output from rbc instance %d: %s", acs.nodeId, i, string(rbcOut))
+			// // log.Printf("Node %d got output from rbc instance %d: %s", acs.nodeId, i, string(rbcOut))
 			acs.Lock()
 			rbcVals[i] = rbcOut
 			rbcDone <- i
@@ -284,7 +285,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int]*utils.BlockShare, s map[i
 
 	bOne, vOne := acs.cOne(rbcVals)
 	if bOne && !*commit {
-		log.Printf("Node %d: Condition C1 is true", acs.nodeId)
+		// log.Printf("Node %d: Condition C1 is true", acs.nodeId)
 		*commit = true
 		out := []*utils.BlockShare{vOne}
 		acsOut <- out
@@ -296,7 +297,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int]*utils.BlockShare, s map[i
 
 	bTwo, vTwo := acs.cTwo(rbcVals, s, abaFinished)
 	if bTwo && !*commit {
-		log.Printf("Node %d: Condition C2 is true", acs.nodeId)
+		// log.Printf("Node %d: Condition C2 is true", acs.nodeId)
 		*commit = true
 		out := []*utils.BlockShare{vTwo}
 		acsOut <- out
@@ -307,7 +308,7 @@ func (acs *CommonSubset) eventHandler(rbcVals map[int]*utils.BlockShare, s map[i
 	}
 	bThree := acs.cThree(rbcVals, s, abaFinished)
 	if bThree && !*commit {
-		log.Printf("Node %d: Condition C3 is true", acs.nodeId)
+		// log.Printf("Node %d: Condition C3 is true", acs.nodeId)
 		*commit = true
 		var outputs []*utils.BlockShare
 		for i := 0; i < acs.n; i++ {
@@ -328,7 +329,7 @@ func (acs *CommonSubset) multicastCommit(values []*utils.BlockShare) {
 	hash := acs.hashValues(values)
 	sig, err := acs.signHash(hash)
 	if err != nil {
-		log.Printf("Node %d failed to create signature", acs.nodeId)
+		// log.Printf("Node %d failed to create signature", acs.nodeId)
 		return
 	}
 	payload := &acsCommitteeMessage{
@@ -343,7 +344,7 @@ func (acs *CommonSubset) multicastCommit(values []*utils.BlockShare) {
 		Payload: payload,
 	}
 
-	log.Printf("Node %d is multicasting commit on %p", acs.nodeId, values)
+	// log.Printf("Node %d is multicasting commit on %p", acs.nodeId, values)
 	acs.multicast(mes)
 }
 
@@ -362,7 +363,7 @@ func (acs *CommonSubset) hashValues(values []*utils.BlockShare) [32]byte {
 func (acs *CommonSubset) signHash(hash [32]byte) (*tcrsa.SigShare, error) {
 	paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
-		log.Printf("Node %d failed to create padded hash", acs.nodeId)
+		// log.Printf("Node %d failed to create padded hash", acs.nodeId)
 		return nil, err
 	}
 	sig, err := acs.tc.Sk.Sign(paddedHash, crypto.SHA256, acs.tc.KeyMeta)
@@ -382,22 +383,22 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 		sharesReceived[m.hash] = make(map[int]*tcrsa.SigShare)
 	}
 	sharesReceived[m.hash][m.sender] = m.sigShare
-	log.Printf("Node %d received commit from %d, total received: %d", acs.nodeId, m.sender, len(sharesReceived[m.hash]))
+	// log.Printf("Node %d received commit from %d, total received: %d", acs.nodeId, m.sender, len(sharesReceived[m.hash]))
 	// TODO: can't create signature with less than n/2+1 shares. This is a restriction by the used library. Following the paper the value should be tk+1.
 	if len(sharesReceived[m.hash]) >= acs.n/2+1 {
-		log.Printf("Node %d received enough valid signature shares, creating signature", acs.nodeId)
+		// log.Printf("Node %d received enough valid signature shares, creating signature", acs.nodeId)
 		var sigShares tcrsa.SigShareList
 		for _, sig := range sharesReceived[m.hash] {
 			sigShares = append(sigShares, sig)
 		}
 		paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, m.hash[:])
 		if err != nil {
-			log.Printf("Node %d failed to create padded hash", acs.nodeId)
+			// log.Printf("Node %d failed to create padded hash", acs.nodeId)
 			return nil, nil
 		}
 		signature, err := sigShares.Join(paddedHash, acs.tc.KeyMeta)
 		if err != nil {
-			log.Printf("Node %d failed to create joined signature, %s", acs.nodeId, err)
+			// log.Printf("Node %d failed to create joined signature, %s", acs.nodeId, err)
 			return nil, nil
 		}
 		mes := &utils.Message{
@@ -408,7 +409,7 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 				sig:    &signature,
 			},
 		}
-		log.Printf("Node %d is multicasting joined signature", acs.nodeId)
+		// log.Printf("Node %d is multicasting joined signature", acs.nodeId)
 		acs.multicast(mes)
 		return m.hash[:], signature
 	}
@@ -419,7 +420,7 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 func (acs *CommonSubset) handleSignatureMessage(m *acsSignatureMessage) ([]byte, tcrsa.Signature) {
 	err := rsa.VerifyPKCS1v15(acs.tc.KeyMeta.PublicKey, crypto.SHA256, m.hash[:], *m.sig)
 	if err != nil {
-		log.Printf("Node %d received signature message with invalid signature", acs.nodeId)
+		// log.Printf("Node %d received signature message with invalid signature", acs.nodeId)
 		return nil, nil
 	}
 	mes := &utils.Message{
@@ -430,7 +431,7 @@ func (acs *CommonSubset) handleSignatureMessage(m *acsSignatureMessage) ([]byte,
 			sig:    m.sig,
 		},
 	}
-	log.Printf("Node %d echoing signature and hash", acs.nodeId)
+	// log.Printf("Node %d echoing signature and hash", acs.nodeId)
 	acs.multicast(mes)
 	return m.hash[:], *m.sig
 }
@@ -439,26 +440,26 @@ func (acs *CommonSubset) handleSignatureMessage(m *acsSignatureMessage) ([]byte,
 func (acs *CommonSubset) isValidSignature(m *acsCommitteeMessage) bool {
 	hash := acs.hashValues(m.values)
 	if hash != m.hash {
-		log.Printf("Node %d received message with invalid hash", acs.nodeId)
+		// log.Printf("Node %d received message with invalid hash", acs.nodeId)
 		return false
 	}
 	paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
-		log.Printf("Node %d failed to create padded hash", acs.nodeId)
+		// log.Printf("Node %d failed to create padded hash", acs.nodeId)
 		return false
 	}
 	if err = m.sigShare.Verify(paddedHash, acs.tc.KeyMeta); err != nil {
-		log.Printf("Node %d received commit with invalid signature", acs.nodeId)
+		// log.Printf("Node %d received commit with invalid signature", acs.nodeId)
 		return false
 	}
 	hash = sha256.Sum256([]byte(strconv.Itoa(m.sender)))
 	paddedHash, err = tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
-		log.Printf("%d failed to hash id of %d, err: %s", acs.nodeId, m.sender, err)
+		// log.Printf("%d failed to hash id of %d, err: %s", acs.nodeId, m.sender, err)
 		return false
 	}
 	if err = m.proof.Verify(paddedHash, acs.tc.KeyMeta); err != nil {
-		log.Printf("%d received invalid signature from %d", acs.nodeId, m.sender)
+		// log.Printf("%d received invalid signature from %d", acs.nodeId, m.sender)
 		return false
 	}
 	return true
@@ -474,7 +475,13 @@ func (acs *CommonSubset) canTerminate(acsFinished []*utils.BlockShare, signature
 	return bytes.Equal(hash[:], receivedHash)
 }
 
-// getValue returns the output of the acs protocol (blocking)
-func (acs *CommonSubset) getValue() []*utils.BlockShare {
+// GetValue returns the output of the acs protocol (blocking)
+func (acs *CommonSubset) GetValue() []*utils.BlockShare {
 	return <-acs.out
+}
+
+// SetInput sets the input of acs and rbc
+func (acs *CommonSubset) SetInput(bs *utils.BlockShare) {
+	acs.input = bs
+	acs.rbcs[acs.nodeId].SetValue(bs)
 }
