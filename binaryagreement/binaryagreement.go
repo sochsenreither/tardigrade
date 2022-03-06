@@ -4,7 +4,7 @@ import (
 	"crypto"
 	"crypto/sha256"
 
-	// "log"
+	//"log"
 	"strconv"
 	"sync"
 
@@ -61,8 +61,8 @@ func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thr
 	}
 	receive := func() *AbaMessage {
 		aba.Lock()
-		defer aba.Unlock()
 		r := aba.round
+		aba.Unlock()
 		return receiveFunc(aba.nodeId, instance, r)
 	}
 
@@ -144,7 +144,7 @@ func (aba *BinaryAgreement) Run() {
 		// Start message handler
 		go messageHandler()
 
-		//// log.Println("Node:", aba.nodeId, "----- new round:", aba.round, "-----", "instance:", aba.instance)
+		//log.Println("Node:", aba.nodeId, "----- new round:", aba.round, "-----", "instance:", aba.instance)
 		aba.Lock()
 		if notifyEST[aba.round] == nil {
 			notifyEST[aba.round] = make(chan []int, 999)
@@ -170,10 +170,11 @@ func (aba *BinaryAgreement) Run() {
 
 		// Call the common coin
 		coin := aba.callCommonCoin()
-		//// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "got value", coin, "from common coin")
+		//log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "got value", coin, "from common coin")
 
 		// Decide
 		if len(values) == 1 {
+			// log.Printf("Node %d, instance %d, round %d - val %d - coin %d", aba.nodeId, aba.instance, aba.round, values[0], coin)
 			if values[0] == coin {
 				// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "returns value", coin)
 				aba.out <- coin
