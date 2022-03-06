@@ -14,6 +14,7 @@ import (
 // TODO: abstract common coin call
 
 type BinaryAgreement struct {
+	UROUND int
 	n               int                   // Number of nodes
 	nodeId          int                   // Id of node
 	t               int                   // Number of maximum faulty nodes
@@ -166,17 +167,18 @@ func (aba *BinaryAgreement) Run() {
 
 		// Wait until enough AUX messages are received
 		values := <-notifyAUX[aba.round]
-		//// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received enough AUX messages, calling common coin")
+		// log.Printf("Node %d UROUND %d round %d instance %d calling coin", aba.nodeId, aba.UROUND, aba.round, aba.instance)
 
 		// Call the common coin
 		coin := aba.callCommonCoin()
-		//log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "got value", coin, "from common coin")
+
+		// log.Printf("Node %d UROUND %d round %d instance %d got value %d", aba.nodeId, aba.UROUND, aba.round, aba.instance, coin)
 
 		// Decide
 		if len(values) == 1 {
 			// log.Printf("Node %d, instance %d, round %d - val %d - coin %d", aba.nodeId, aba.instance, aba.round, values[0], coin)
 			if values[0] == coin {
-				// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "returns value", coin)
+				// log.Printf("Node %d UROUND %d round %d instance %d. Value %d - Coin %d - Returning", aba.nodeId, aba.UROUND, aba.round, aba.instance, values[0], coin)
 				aba.out <- coin
 				return
 			} else {

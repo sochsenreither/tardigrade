@@ -9,6 +9,7 @@ import (
 
 type Block struct {
 	Txs [][]byte
+	TxsCount int
 }
 
 type PreBlock struct {
@@ -49,15 +50,6 @@ func(block *Block) Print() []byte {
 	}
 
 	return ret
-}
-
-// TxCount returns the number of transactions in a block
-func (block *Block) TxCount(txSize int) int {
-	var txs []byte
-	for _, tx := range block.Txs {
-		txs = append(txs, tx...)
-	}
-	return len(txs) / txSize
 }
 
 // Adds a message to the pre-block at given node index

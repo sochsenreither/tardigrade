@@ -4,7 +4,7 @@ import (
 	"crypto"
 	"crypto/sha256"
 
-	//"log"
+	// "log"
 	"strconv"
 
 	"github.com/niclabs/tcrsa"
@@ -15,6 +15,7 @@ import (
 // - hash length is hardcoded to 32 for now
 
 type ReliableBroadcast struct {
+	UROUND int
 	n         int                      // Number of nodes
 	nodeId    int                      // Id of node
 	t         int                      // Number of maximum faulty nodes
@@ -209,7 +210,7 @@ func (rbc *ReliableBroadcast) handleReady(m *BMessage, readyMap map[[32]byte]map
 }
 
 // handleCommitteeMessage saved received messages from committee members. If enough messages are
-// received, it will return true in so the protocol can terminate.
+// received, it will return true so the protocol can terminate.
 func (rbc *ReliableBroadcast) handleCommitteeMessage(m *CMessage, committeeReceived map[[32]byte]map[int]bool) bool {
 	if committeeReceived[m.hash] == nil {
 		committeeReceived[m.hash] = make(map[int]bool)
@@ -219,7 +220,7 @@ func (rbc *ReliableBroadcast) handleCommitteeMessage(m *CMessage, committeeRecei
 	// Upon receiving messages on the same value v from tk+1 distinct committee members, output v
 	// and terminate.
 	if len(committeeReceived[m.hash]) >= rbc.tk+1 {
-		// log.Printf("Node %d, instance %d: outputting '%s' and terminating..", rbc.nodeId, rbc.senderId, string(m.value))
+		// log.Printf("Node %d UROUND %d, instance %d: outputting '%x' and terminating..", rbc.nodeId, rbc.UROUND, rbc.senderId, (m.value.Hash()))
 		rbc.out <- m.value
 		return true
 	}

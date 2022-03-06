@@ -5,7 +5,8 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
-	//"log"
+	// "log"
+
 	"strconv"
 	"sync"
 
@@ -19,6 +20,7 @@ import (
 // - hash size?
 
 type CommonSubset struct {
+	UROUND    int
 	n         int                      // Number of nodes
 	nodeId    int                      // Id of node
 	t         int                      // Number of maximum faulty nodes
@@ -27,8 +29,8 @@ type CommonSubset struct {
 	committee map[int]bool             // List of committee members
 	input     *utils.BlockShare        // Input value
 	out       chan []*utils.BlockShare // Output values
-	rbcs      []*rbc.ReliableBroadcast // N instances of reliable broadcast
-	abas      []*aba.BinaryAgreement   // N instances of binary agreement
+	Rbcs      []*rbc.ReliableBroadcast // N instances of reliable broadcast
+	Abas      []*aba.BinaryAgreement   // N instances of binary agreement
 	tc        *ThresholdCrypto         // Personal signature, key meta and signing key
 	multicast func(msg *utils.Message) // Function for multicasting messages
 	receive   func() *utils.Message    // Blocking function for receiving messages
@@ -88,8 +90,8 @@ func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs
 		committee: comittee,
 		input:     input,
 		out:       out,
-		rbcs:      rbcs,
-		abas:      abas,
+		Rbcs:      rbcs,
+		Abas:      abas,
 		tc:        sig,
 		multicast: multicast,
 		receive:   receive,
@@ -98,6 +100,7 @@ func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs
 }
 
 func (acs *CommonSubset) Run() {
+	// log.Printf("Node %d starting ACS with input %x", acs.nodeId, acs.input.Hash())
 	commit := false
 
 	var acsFinished []*utils.BlockShare // return value of the inner acs protocol
@@ -124,13 +127,13 @@ func (acs *CommonSubset) Run() {
 	go messageHandler()
 
 	handleAba := func(i int) {
-		// // log.Printf("Node %d starting aba instance %d", acs.nodeId, i)
-		go acs.abas[i].Run()
+		// log.Printf("Node %d starting aba instance %d", acs.nodeId, i)
+		go acs.Abas[i].Run()
 		acs.Lock()
 		abaRunning[i] = true
 		acs.Unlock()
-		abaOut := acs.abas[i].GetValue()
-		// // log.Printf("Node %d received %d as value from aba instance %d", acs.nodeId, abaOut, i)
+		abaOut := acs.Abas[i].GetValue()
+		// log.Printf("Node %d received %d as value from aba instance %d", acs.nodeId, abaOut, i)
 		acs.Lock()
 		abaFinished[i] = true
 		// If aba_i terminated with 1 as output, add it to s
@@ -149,10 +152,10 @@ func (acs *CommonSubset) Run() {
 	for i := 0; i < acs.n; i++ {
 		i := i
 		go func() {
-			// // log.Printf("Node %d starting rbc instance %d", acs.nodeId, i)
-			go acs.rbcs[i].Run()
-			rbcOut := acs.rbcs[i].GetValue()
-			// // log.Printf("Node %d got output from rbc instance %d: %s", acs.nodeId, i, string(rbcOut))
+			// log.Printf("Node %d starting rbc instance %d", acs.nodeId, i)
+			go acs.Rbcs[i].Run()
+			rbcOut := acs.Rbcs[i].GetValue()
+			// log.Printf("Node %d got output from rbc instance %d: %s", acs.nodeId, i, string(rbcOut))
 			acs.Lock()
 			rbcVals[i] = rbcOut
 			rbcDone <- i
@@ -167,7 +170,7 @@ func (acs *CommonSubset) Run() {
 			// rbc_i finished, start aba_i with 1 as input
 			acs.Lock()
 			if !abaRunning[i] {
-				acs.abas[i].SetValue(1)
+				acs.Abas[i].SetValue(1)
 				go handleAba(i)
 			}
 			acs.Unlock()
@@ -176,7 +179,7 @@ func (acs *CommonSubset) Run() {
 			acs.Lock()
 			for i := 0; i < acs.n; i++ {
 				if !abaRunning[i] {
-					acs.abas[i].SetValue(0)
+					acs.Abas[i].SetValue(0)
 					go handleAba(i)
 				}
 			}
@@ -186,6 +189,10 @@ func (acs *CommonSubset) Run() {
 		case mes := <-messageChan:
 			switch m := mes.Payload.(type) {
 			case *acsSignatureMessage:
+				// TODO: fix this maybe?
+				if receivedHash != nil && signature != nil {
+					break
+				}
 				h, s := acs.handleSignatureMessage(m)
 				if h != nil {
 					receivedHash = h
@@ -363,7 +370,7 @@ func (acs *CommonSubset) hashValues(values []*utils.BlockShare) [32]byte {
 func (acs *CommonSubset) signHash(hash [32]byte) (*tcrsa.SigShare, error) {
 	paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
-		// log.Printf("Node %d failed to create padded hash", acs.nodeId)
+		//log.Printf("Node %d UROUND %d failed to create padded hash", acs.nodeId, acs.UROUND)
 		return nil, err
 	}
 	sig, err := acs.tc.Sk.Sign(paddedHash, crypto.SHA256, acs.tc.KeyMeta)
@@ -467,12 +474,17 @@ func (acs *CommonSubset) isValidSignature(m *acsCommitteeMessage) bool {
 
 // canTerminate returns whether the termination conditions are met.
 func (acs *CommonSubset) canTerminate(acsFinished []*utils.BlockShare, signature tcrsa.Signature, receivedHash []byte) bool {
+	//log.Printf("Node %d UROUND %d checking termination", acs.nodeId, acs.UROUND)
 	if acsFinished == nil || signature == nil || receivedHash == nil {
 		return false
 	}
 	hash := acs.hashValues(acsFinished)
 
-	return bytes.Equal(hash[:], receivedHash)
+	if bytes.Equal(hash[:], receivedHash) {
+		// log.Printf("Node %d UROUND %d can terminate", acs.nodeId, acs.UROUND)
+		return true
+	}
+	return false
 }
 
 // GetValue returns the output of the acs protocol (blocking)
@@ -483,5 +495,5 @@ func (acs *CommonSubset) GetValue() []*utils.BlockShare {
 // SetInput sets the input of acs and rbc
 func (acs *CommonSubset) SetInput(bs *utils.BlockShare) {
 	acs.input = bs
-	acs.rbcs[acs.nodeId].SetValue(bs)
+	acs.Rbcs[acs.nodeId].SetValue(bs)
 }

@@ -85,16 +85,15 @@ func TestProposeTxs(t *testing.T) {
 	}
 }
 
-// Aufsplitten von acs und abc erstellen. maximale rundenzahl in abc
 func TestSimpleTest(t *testing.T) {
 	// Note: Increase keysize of pk enc when increasing number of nodes or tx size
-	n := 7
-	delta := 100
-	lambda := 1000
+	n := 3
+	delta := 25
+	lambda := 150
 	txSize := 8
 	cfg := setupConfig(n, 0, 0, 1, delta, 0, lambda, txSize)
 
-	maxRounds := 5
+	maxRounds := 20
 	abcs := setupSimulation(cfg, maxRounds)
 
 	fmt.Println("Setup done, starting simulation...")
@@ -129,7 +128,7 @@ func TestSimpleTest(t *testing.T) {
 				t.Errorf("Different output blocks")
 			}
 		}
-		txsCount += abcs[0].GetBlocks()[j].TxCount(txSize)
+		txsCount += abcs[0].GetBlocks()[j].TxsCount
 	}
 	fmt.Println("Total transactions:", txsCount)
 	fmt.Println("Transactions per second:", float64(txsCount)/float64(executionTime/time.Millisecond)*1000)
@@ -360,7 +359,7 @@ func setupABC(cfg *testConfig, acss [][]*acs.CommonSubset, blas [][]*bla.BlockAg
 // Returns one instance of acs per node
 func setupACS(cfg *testConfig) []*acs.CommonSubset {
 	// Setup common coin
-	requestChannel := make(chan *aba.CoinRequest, 99999)
+	requestChannel := make(chan *aba.CoinRequest, 9999)
 	coin := aba.NewCommonCoin(cfg.n, cfg.keyMeta, requestChannel)
 	go coin.Run()
 

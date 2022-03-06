@@ -27,15 +27,14 @@ type ABC struct {
 	buf       [][]byte                                // Transaction buffer
 	multicast func(msg *utils.Message, params ...int) // Function for multicasting messages
 	receive   func(round int) *utils.Message          // Blocking function for receiving messages
-	locks     map[int]*sync.Mutex                     // Lock per round
 	blocks    map[int]*utils.Block                    // Maps round -> block
 	sync.Mutex
 }
 
 type tcs struct {
-	keyMeta *tcrsa.KeyMeta       // KeyMeta containig pks for verifying
-	proof   *tcrsa.SigShare      // Signature on the node index signed by the dealer
-	sigSk   *tcrsa.KeyShare      // Private signing key
+	keyMeta *tcrsa.KeyMeta      // KeyMeta containig pks for verifying
+	proof   *tcrsa.SigShare     // Signature on the node index signed by the dealer
+	sigSk   *tcrsa.KeyShare     // Private signing key
 	encSk   tcpaillier.KeyShare // Private encryption key
 	encPk   tcpaillier.PubKey   // Public encryption key
 	sync.Mutex
@@ -100,9 +99,19 @@ func NewABC(cfg *UpgradeConfig, acs []*acs.CommonSubset, ba []*bla.BlockAgreemen
 		buf:       make([][]byte, 0),
 		multicast: multicastFunc,
 		receive:   receive,
-		locks:     make(map[int]*sync.Mutex),
 		blocks:    make(map[int]*utils.Block),
 	}
+
+	for i, a := range acs {
+		a.UROUND = i
+		for _, ba := range a.Abas {
+			ba.UROUND = i
+		}
+		for _, bc := range a.Rbcs {
+			bc.UROUND = i
+		}
+	}
+
 	return u
 }
 
@@ -114,7 +123,10 @@ func (abc *ABC) Run(maxRound int) {
 	wg.Add(maxRound)
 	// Start first round immediately
 	go func() {
-		abc.runProtocol(round)
+		abc.Lock()
+		r := round
+		abc.Unlock()
+		abc.runProtocol(r)
 		wg.Done()
 	}()
 	for {
@@ -125,7 +137,9 @@ func (abc *ABC) Run(maxRound int) {
 			ticker.Stop()
 			return
 		case <-ticker.C:
+			abc.Lock()
 			round++
+			abc.Unlock()
 			r := round
 			go func() {
 				if r >= maxRound {
@@ -144,13 +158,8 @@ func (abc *ABC) runProtocol(r int) {
 	// Ticker for starting BLA
 	blaTicker := time.NewTicker(time.Duration(4*abc.cfg.delta) * time.Millisecond)
 
-	// Every round needs a unique lock. Otherwise we could have the case of 10 rounds running in
-	// parallel and one agent of round x blocking every other agent in rounds y != x when taking
-	// the lock.
+	// Every round needs a unique lock.
 	var mu sync.Mutex
-	abc.Lock()
-	abc.locks[r] = &mu
-	abc.Unlock()
 
 	largePb := utils.NewPreBlock(abc.cfg.n)            // large pre-block
 	readyLarge := false                                // Set when n-t-quality pre-block is received
@@ -173,18 +182,15 @@ func (abc *ABC) runProtocol(r int) {
 			switch m := msg.Payload.(type) {
 			case *blockMessage:
 				if m.status == "large" && abc.cfg.committee[abc.cfg.nodeId] {
-					abc.handleLargeBlockMessage(r, m, largePb, &readyLarge, abc.locks[r], readyChan)
+					abc.handleLargeBlockMessage(r, m, largePb, &readyLarge, &mu)
 				} else {
-					abc.handleSmallBlockMessage(r, m, smallPb, &readySmall, abc.locks[r], readyChan)
+					abc.handleSmallBlockMessage(r, m, smallPb, &readySmall, &mu, readyChan)
 				}
 			case *pointerMessage:
-				abc.Lock()
-				l := abc.locks[r]
-				abc.Unlock()
-				abc.handlePointerMessage(r, m, &ptr, l, ptrChan)
+				abc.handlePointerMessage(r, m, &ptr, &mu, ptrChan)
 			case *committeeMessage:
 				largeBlockChan <- m.preBlock
-				abc.handleCommitteeMessage(r, m, &ptr, mesRec, blocksReceived, abc.locks[r], ptrChan)
+				abc.handleCommitteeMessage(r, m, &ptr, mesRec, blocksReceived, &mu, ptrChan)
 			case *pbDecryptionShareMessage:
 				//log.Printf("Node %d: receiving decryption share. decshares: %d from %d", abc.cfg.nodeId, len(m.decShares), m.sender)
 				decChan <- m.decShares
@@ -218,6 +224,8 @@ func (abc *ABC) runProtocol(r int) {
 	// At time 4 delta, run BLA:
 	<-blaTicker.C
 	blaTicker.Stop()
+	var blaOutput *utils.BlockShare
+	blaFailed := false
 
 	mu.Lock()
 	if readySmall && ptr != nil {
@@ -226,18 +234,15 @@ func (abc *ABC) runProtocol(r int) {
 		mu.Unlock()
 		abc.bla[r].SetInput(bs)
 		abc.bla[r].Run()
+		// At time 5 delta + 5 kappa delta, get output of BLA and run ACS:
+		blaOutput = abc.bla[r].GetValue()
 	} else {
 		mu.Unlock()
-	}
-
-	// At time 5 delta + 5 kappa delta, get output of BLA and run ACS:
-	// TODO: for testing set blaOutput to nil.
-	blaOutput := abc.bla[r].GetValue()
-
-	if blaOutput == nil {
-		//log.Printf("Node %d: BLA failed in round %d", abc.cfg.nodeId, r)
-	} else {
-		//log.Printf("Node %d: received output from BLA", abc.cfg.nodeId)
+		blaOutput = nil
+		// Wait for 5 kappa delta
+		t := time.NewTicker(time.Duration(5*abc.cfg.kappa*abc.cfg.delta) * time.Millisecond)
+		<-t.C
+		t.Stop()
 	}
 
 	if abc.isWellFormedBlockShare(blaOutput) {
@@ -247,18 +252,21 @@ func (abc *ABC) runProtocol(r int) {
 		abc.acs[r].Run()
 	} else {
 		// Else wait until ready is true and pointer != nil and input that to ACS
-		//log.Printf("Node %d: Waiting for blocks", abc.cfg.nodeId)
+		blaFailed = true
+		// log.Printf("Node %d: Waiting for blocks", abc.cfg.nodeId)
 		<-readyChan
 		<-ptrChan
+		mu.Lock()
 		bs := utils.NewBlockShare(smallPb, ptr)
-		//log.Printf("Node %d: Running ACS after failed BLA", abc.cfg.nodeId)
+		mu.Unlock()
+		// log.Printf("Node %d round %d: Running ACS after failed BLA", abc.cfg.nodeId, r)
 		abc.acs[r].SetInput(bs)
 		go abc.acs[r].Run()
 	}
 
 	acsOutput := abc.acs[r].GetValue()
 	var block *utils.Block
-	//log.Printf("Node %d: received output from ACS. len: %d", abc.cfg.nodeId, len(acsOutput))
+	//log.Printf("Node %d round %d: received output from ACS. len: %d", abc.cfg.nodeId, r, len(acsOutput))
 	if len(acsOutput) == 1 {
 		if abc.cfg.committee[abc.cfg.nodeId] {
 			abc.waitForMatchingBlock(r, acsOutput[0].Pointer, largeBlockChan)
@@ -284,7 +292,11 @@ func (abc *ABC) runProtocol(r int) {
 	}
 
 	count := abc.setBlock(r, block)
-	log.Printf("Node %d: finishing round %d with %d transactions", abc.cfg.nodeId, r, count)
+	if blaFailed {
+		log.Printf("Node %d round %d: finishing with %d transactions and failed bla", abc.cfg.nodeId, r, count)
+	} else {
+		log.Printf("Node %d round %d: finishing with %d transactions and successful bla", abc.cfg.nodeId, r, count)
+	}
 }
 
 // SetBlock removes all transactions from the buffer that are in the block and sets the block of
@@ -333,8 +345,14 @@ func (abc *ABC) setBlock(r int, block *utils.Block) int {
 }
 
 func (abc *ABC) constructBlock(r int, b []*utils.PreBlock, decChan chan [][]*tcpaillier.DecryptionShare) *utils.Block {
-	//log.Printf("Node %d: constructing block. Block is of %d-quality.", abc.cfg.nodeId, b[0].Quality())
+	//log.Printf("Node %d: constructing block.", abc.cfg.nodeId)
 	txs := make([][]byte, 0)
+
+	// Get number of total transactions.
+	txsCount := 0
+	for _, block := range b {
+		txsCount += block.Quality()
+	}
 
 	// bl := b[0]
 	// for i, v := range bl.Vec {
@@ -350,7 +368,9 @@ func (abc *ABC) constructBlock(r int, b []*utils.PreBlock, decChan chan [][]*tcp
 	for s := range decChan {
 		for i, shares := range s {
 			for j, share := range shares {
-				decshares[i][j] = append(decshares[i][j], share)
+				if share != nil {
+					decshares[i][j] = append(decshares[i][j], share)
+				}
 				if len(decshares[i][j]) > abc.cfg.n/2 {
 					dec, err := abc.tcs.encPk.CombineShares(decshares[i][j]...)
 					if err != nil {
@@ -360,7 +380,7 @@ func (abc *ABC) constructBlock(r int, b []*utils.PreBlock, decChan chan [][]*tcp
 					//log.Printf("Node %d: %d - %s", abc.cfg.nodeId, j, dec.Bytes())
 					bytesCounter += len(dec.Bytes())
 					decCounter++
-					if decCounter == abc.cfg.n-abc.cfg.t {
+					if decCounter == txsCount {
 						goto Done
 					}
 				}
@@ -371,7 +391,8 @@ func (abc *ABC) constructBlock(r int, b []*utils.PreBlock, decChan chan [][]*tcp
 Done:
 	//log.Printf("Node %d: done constructing block. Total of %d bytes", abc.cfg.nodeId, bytesCounter)
 	block := &utils.Block{
-		Txs: txs,
+		Txs:      txs,
+		TxsCount: bytesCounter / abc.cfg.txSize,
 	}
 	// for _, tx := range txs {
 	// 	log.Printf("Node %d round %d: final txs: %x - %dB", abc.cfg.nodeId, r, tx, len(tx))
@@ -386,6 +407,7 @@ func (abc *ABC) sendDecryptionShares(r int, acsOutput []*utils.BlockShare) {
 		decShares[i] = make([]*tcpaillier.DecryptionShare, len(bs.Block.Vec))
 		for j, v := range bs.Block.Vec {
 			if v == nil {
+				log.Printf("Node %d round %d: got nil in blockvec", abc.cfg.nodeId, r)
 				// TODO: bug? why can there be a mes == nil in here?
 				continue
 			}
@@ -481,7 +503,7 @@ func (abc *ABC) handleLargeTransaction(r int, w [][]byte) {
 	data := new(big.Int)
 	data.SetBytes(tx)
 
-	m, err := abc.encryptAndSign(data, "large")
+	m, err := abc.encryptAndSign(r, data, "large")
 	if err != nil {
 		return
 	}
@@ -497,8 +519,9 @@ func (abc *ABC) handleLargeTransaction(r int, w [][]byte) {
 func (abc *ABC) handleSmallTransaction(i, r int, tx []byte) {
 	data := new(big.Int)
 	data.SetBytes(tx)
-	m, err := abc.encryptAndSign(data, "small")
+	m, err := abc.encryptAndSign(r, data, "small")
 	if err != nil {
+		log.Printf("Node %d round %d: encryptAndSign failed: %s", abc.cfg.nodeId, r, err)
 		return
 	}
 	abc.multicast(m, r, i)
@@ -506,7 +529,7 @@ func (abc *ABC) handleSmallTransaction(i, r int, tx []byte) {
 
 // encryptAndSign encrypts data, signs the hash of the encrypted value and returns a blockMessage
 // wrapped into a Message
-func (abc *ABC) encryptAndSign(data *big.Int, status string) (*utils.Message, error) {
+func (abc *ABC) encryptAndSign(r int, data *big.Int, status string) (*utils.Message, error) {
 	tx := string(data.Bytes())
 	// Encrypt transaction
 	e, _, err := abc.tcs.encPk.Encrypt(data)
@@ -548,7 +571,8 @@ func (abc *ABC) handleSmallBlockMessage(r int, m *blockMessage, b *utils.PreBloc
 			Message: m.payload,
 			Sig:     m.sig,
 		}
-		b.Vec[m.sender] = pbMes
+		b.AddMessage(m.sender, pbMes)
+
 		if b.Quality() >= abc.cfg.n-abc.cfg.t && !*rdy {
 			*rdy = true
 			readyChan <- struct{}{}
@@ -557,7 +581,7 @@ func (abc *ABC) handleSmallBlockMessage(r int, m *blockMessage, b *utils.PreBloc
 }
 
 // handleLargeBlockMessage saves incoming blockMessages containing large blocks.
-func (abc *ABC) handleLargeBlockMessage(r int, m *blockMessage, b *utils.PreBlock, rdy *bool, mu *sync.Mutex, readyChan chan struct{}) {
+func (abc *ABC) handleLargeBlockMessage(r int, m *blockMessage, b *utils.PreBlock, rdy *bool, mu *sync.Mutex) {
 	mu.Lock()
 	defer mu.Unlock()
 	if b.Vec[m.sender] == nil {
@@ -571,7 +595,6 @@ func (abc *ABC) handleLargeBlockMessage(r int, m *blockMessage, b *utils.PreBloc
 		if b.Quality() >= abc.cfg.n-abc.cfg.t && !*rdy {
 			//log.Printf("Node %d: has a %d-quality pre-block", abc.cfg.nodeId, b.Quality())
 			*rdy = true
-			readyChan <- struct{}{}
 			h := b.Hash()
 			paddedHash, err := tcrsa.PrepareDocumentHash(abc.tcs.keyMeta.PublicKey.Size(), crypto.SHA256, h[:])
 			if err != nil {
