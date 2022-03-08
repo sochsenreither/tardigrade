@@ -25,20 +25,22 @@ import (
 )
 
 type testConfig struct {
-	n            int                    // Number of nodes
-	ta           int                    // Number of maximum faulty nodes (asynch)
-	ts           int                    // Number of maximum faulty nodes (synch)
-	kappa        int                    // Security parameter
-	delta        int                    // Round timer
-	epsilon      int                    //
-	lambda       int                    // spacing paramter
-	committee    map[int]bool           // List of committee members
-	txSize       int                    // Transaction size in bytes
-	keySharesSig tcrsa.KeyShareList     // List of keyShares of the signature scheme
-	keyMeta      *tcrsa.KeyMeta         // keyMeta of the signature scheme
-	keySharesEnc []*tcpaillier.KeyShare // List of keyShares of the encryption scheme
-	pk           tcpaillier.PubKey     // public key of the encryption scheme
-	signedIDs    []*tcrsa.SigShare      // List of signed node ids by the dealer
+	n         int                    // Number of nodes
+	ta        int                    // Number of maximum faulty nodes (asynch)
+	ts        int                    // Number of maximum faulty nodes (synch)
+	kappa     int                    // Security parameter
+	delta     int                    // Round timer
+	epsilon   int                    //
+	lambda    int                    // spacing paramter
+	committee map[int]bool           // List of committee members
+	txSize    int                    // Transaction size in bytes
+	sigKeys   tcrsa.KeyShareList     // List of keyShares of the signature scheme
+	keyMeta   *tcrsa.KeyMeta         // keyMeta of the signature scheme
+	pk        tcpaillier.PubKey      // public key of the encryption scheme
+	signedIDs []*tcrsa.SigShare      // List of signed node ids by the dealer
+	keyMetaC  *tcrsa.KeyMeta         // KeyMeta for committee members
+	sigKeysC  []*tcrsa.KeyShare      // Signings keys for committee members
+	encKeysC  []*tcpaillier.KeyShare // Private encryption keys for committee members
 }
 
 // func TestMain(m *testing.M) {
@@ -87,20 +89,21 @@ func TestProposeTxs(t *testing.T) {
 
 func TestSimpleTest(t *testing.T) {
 	// Note: Increase keysize of pk enc when increasing number of nodes or tx size
-	n := 3
-	delta := 25
-	lambda := 150
-	txSize := 8
-	cfg := setupConfig(n, 0, 0, 1, delta, 0, lambda, txSize)
+	n := 5
+	delta := 30
+	lambda := 400
+	txSize := 4
+	kappa := 2
+	cfg := setupConfig(n, 0, 0, kappa, delta, 0, lambda, txSize)
 
-	maxRounds := 20
+	maxRounds := 15
 	abcs := setupSimulation(cfg, maxRounds)
 
 	fmt.Println("Setup done, starting simulation...")
 	var wg sync.WaitGroup
-	wg.Add(cfg.n)
+	wg.Add(cfg.n - cfg.ta)
 	start := time.Now()
-	for i := 0; i < cfg.n; i++ {
+	for i := 0; i < cfg.n-cfg.ta; i++ {
 		//fmt.Println(i, len(abcs[i].acs), len(abcs[i].bla))
 		i := i
 		go func() {
@@ -118,7 +121,7 @@ func TestSimpleTest(t *testing.T) {
 	for j := 0; j < maxRounds; j++ {
 		var prevHash [32]byte
 		// Check every node.
-		for i := 0; i < cfg.n; i++ {
+		for i := 0; i < cfg.n-cfg.ta; i++ {
 			out := abcs[i].GetBlocks()[j].Hash()
 			if i == 0 {
 				prevHash = out
@@ -130,6 +133,8 @@ func TestSimpleTest(t *testing.T) {
 		}
 		txsCount += abcs[0].GetBlocks()[j].TxsCount
 	}
+
+	// TODO: count unique transactions
 	fmt.Println("Total transactions:", txsCount)
 	fmt.Println("Transactions per second:", float64(txsCount)/float64(executionTime/time.Millisecond)*1000)
 }
@@ -159,7 +164,7 @@ func setupSimulation(cfg *testConfig, k int) []*ABC {
 
 	// Create buffers for every node with random transactions
 	start = time.Now()
-	bufsize := cfg.n * k * 10
+	bufsize := cfg.n * k * 20
 	bufs := make([][][]byte, cfg.n)
 	for i := 0; i < cfg.n; i++ {
 		bufs[i] = make([][]byte, bufsize)
@@ -177,17 +182,19 @@ func setupSimulation(cfg *testConfig, k int) []*ABC {
 
 func setupConfig(n, ta, ts, kappa, delta, epsilon, lambda int, txSize int) *testConfig {
 	committee := make(map[int]bool)
-	for i := 0; i < n/2+1; i++ {
+	for i := 0; i < kappa; i++ {
 		committee[i] = true
 	}
+
+
 	start := time.Now()
-	keySharesSig, keyMeta, keySharesEnc, pk := setupKeys(n)
+	sigKeys, keyMeta, pk, sigKeysC, keyMetaC, encKeysC := setupKeys(n, committee)
 	signedIds := make([]*tcrsa.SigShare, n)
 	// Dealer signs node ids (dealer is node 0 in this case)
 	for i := 0; i < n; i++ {
 		hash := sha256.Sum256([]byte(strconv.Itoa(i)))
 		paddedHash, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
-		sig, err := keySharesSig[0].Sign(paddedHash, crypto.SHA256, keyMeta)
+		sig, err := sigKeys[0].Sign(paddedHash, crypto.SHA256, keyMeta)
 		if err != nil {
 			panic(err)
 		}
@@ -195,37 +202,46 @@ func setupConfig(n, ta, ts, kappa, delta, epsilon, lambda int, txSize int) *test
 	}
 	fmt.Println("Key setup took", time.Since(start))
 	cfg := &testConfig{
-		n:            n,
-		ta:           ta,
-		ts:           ts,
-		kappa:        kappa,
-		delta:        delta,
-		epsilon:      epsilon,
-		lambda:       lambda,
-		committee:    committee,
-		keySharesSig: keySharesSig,
-		keyMeta:      keyMeta,
-		keySharesEnc: keySharesEnc,
-		pk:           *pk,
-		signedIDs:    signedIds,
-		txSize:       txSize,
+		n:         n,
+		ta:        ta,
+		ts:        ts,
+		kappa:     kappa,
+		delta:     delta,
+		epsilon:   epsilon,
+		lambda:    lambda,
+		committee: committee,
+		sigKeys:   sigKeys,
+		keyMeta:   keyMeta,
+		pk:        *pk,
+		signedIDs: signedIds,
+		keyMetaC:  keyMetaC,
+		sigKeysC:  sigKeysC,
+		encKeysC:  encKeysC,
+		txSize:    txSize,
 	}
 	return cfg
 }
 
-func setupKeys(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta, []*tcpaillier.KeyShare, *tcpaillier.PubKey) {
+func setupKeys(n int, committee map[int]bool) (tcrsa.KeyShareList, *tcrsa.KeyMeta, *tcpaillier.PubKey, tcrsa.KeyShareList, *tcrsa.KeyMeta, []*tcpaillier.KeyShare) {
 	// Setup signature scheme
 	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
 	if err != nil {
 		panic(err)
 	}
 
-	// Setup encryption scheme
-	shares, pk, err := tcpaillier.NewKey(512, 1, uint8(n), uint8(n/2+1))
+	k := len(committee)
+	keySharesC, keyMetaC, err := tcrsa.NewKey(512, uint16(k/2+1), uint16(k), nil)
 	if err != nil {
 		panic(err)
 	}
-	return keyShares, keyMeta, shares, pk
+
+	// Setup encryption scheme
+	shares, pk, err := tcpaillier.NewKey(512, 1, uint8(k), uint8(k/2+1))
+	if err != nil {
+		panic(err)
+	}
+
+	return keyShares, keyMeta, pk, keySharesC, keyMetaC, shares
 }
 
 // setupBLA returns a slice of blockagreement instances
@@ -248,6 +264,7 @@ func setupBLA(cfg *testConfig) []*bla.BlockAgreement {
 			chans = append(chans, nodeChans[round]...)
 			mu.Unlock()
 			if len(params) == 1 {
+				//fmt.Printf("%d -> %d %T\n", msg.Sender, params[0], msg.Payload)
 				chans[params[0]] <- msg
 			} else {
 				for i := 0; i < cfg.n; i++ {
@@ -271,11 +288,11 @@ func setupBLA(cfg *testConfig) []*bla.BlockAgreement {
 	}
 
 	leader := func(round, n int) int {
-		return round + 1%n
+		return (round + 1) % n
 	}
 
-	for i := 0; i < cfg.n; i++ {
-		blas[i] = bla.NewBlockAgreement(cfg.n, i, cfg.ts, cfg.kappa, nil, cfg.keySharesSig[i], cfg.keyMeta, leader, cfg.delta, multicast, receive)
+	for i := 0; i < cfg.n-cfg.ts; i++ {
+		blas[i] = bla.NewBlockAgreement(cfg.n, i, cfg.ts, cfg.kappa, nil, cfg.sigKeys[i], cfg.keyMeta, leader, cfg.delta, multicast, receive)
 	}
 	return blas
 }
@@ -325,12 +342,18 @@ func setupABC(cfg *testConfig, acss [][]*acs.CommonSubset, blas [][]*bla.BlockAg
 	}
 
 	for i := 0; i < cfg.n; i++ {
+		committeeKeys := &committeeKeys{}
+		if cfg.committee[i] {
+			committeeKeys.sigSk = cfg.sigKeysC[i]
+			committeeKeys.encSk = *cfg.encKeysC[i]
+		}
 		tcs := &tcs{
-			keyMeta: cfg.keyMeta,
-			proof:   cfg.signedIDs[i],
-			sigSk:   cfg.keySharesSig[i],
-			encSk:   *cfg.keySharesEnc[i],
-			encPk:   cfg.pk,
+			keyMeta:       cfg.keyMeta,
+			keyMetaC:      cfg.keyMetaC,
+			proof:         cfg.signedIDs[i],
+			sigSk:         cfg.sigKeys[i],
+			encPk:         cfg.pk,
+			committeeKeys: committeeKeys,
 		}
 		ucfg := &UpgradeConfig{
 			n:         cfg.n,
@@ -405,9 +428,13 @@ func setupACS(cfg *testConfig) []*acs.CommonSubset {
 
 	for i := 0; i < cfg.n; i++ {
 		tc := &acs.ThresholdCrypto{
-			Sk:       cfg.keySharesSig[i],
+			Sk:       cfg.sigKeys[i],
 			KeyMeta:  cfg.keyMeta,
 			SigShare: cfg.signedIDs[i],
+			KeyMetaC: cfg.keyMetaC,
+		}
+		if cfg.committee[i] {
+			tc.SkC = cfg.sigKeysC[i]
 		}
 		acscfg := &acs.ACSConfig{
 			N:       cfg.n,
@@ -472,7 +499,7 @@ func setupAba(cfg *testConfig, coin *aba.CommonCoin) map[int][]*aba.BinaryAgreem
 	for i := 0; i < cfg.n; i++ {
 		i := i
 		thresholdCrypto := &aba.ThresholdCrypto{
-			KeyShare: cfg.keySharesSig[i],
+			KeyShare: cfg.sigKeys[i],
 			KeyMeta:  cfg.keyMeta,
 		}
 		for j := 0; j < cfg.n; j++ {

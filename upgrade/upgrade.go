@@ -19,6 +19,9 @@ import (
 	utils "github.com/sochsenreither/upgrade/utils"
 )
 
+// TODO: change every tk+1 to len(committee)
+// TODO: fix err with kappa
+
 type ABC struct {
 	cfg       *UpgradeConfig                          // Parameters for protocol
 	acs       []*acs.CommonSubset                     // Subset instances
@@ -32,12 +35,19 @@ type ABC struct {
 }
 
 type tcs struct {
-	keyMeta *tcrsa.KeyMeta      // KeyMeta containig pks for verifying
-	proof   *tcrsa.SigShare     // Signature on the node index signed by the dealer
-	sigSk   *tcrsa.KeyShare     // Private signing key
-	encSk   tcpaillier.KeyShare // Private encryption key
-	encPk   tcpaillier.PubKey   // Public encryption key
+	keyMeta       *tcrsa.KeyMeta    // KeyMeta containig pks for verifying
+	keyMetaC      *tcrsa.KeyMeta    // KeyMeta containig pks for verifying committee signatures
+	proof         *tcrsa.SigShare   // Signature on the node index signed by the dealer
+	sigSk         *tcrsa.KeyShare   // Private signing key
+	encPk         tcpaillier.PubKey // Public encryption key
+	committeeKeys *committeeKeys
 	sync.Mutex
+}
+
+// These keys are only used for signing committee messages and creating decryption shares
+type committeeKeys struct {
+	sigSk *tcrsa.KeyShare     // Private signing key
+	encSk tcpaillier.KeyShare // Private encryption key
 }
 
 type UpgradeConfig struct {
@@ -161,16 +171,16 @@ func (abc *ABC) runProtocol(r int) {
 	// Every round needs a unique lock.
 	var mu sync.Mutex
 
-	largePb := utils.NewPreBlock(abc.cfg.n)            // large pre-block
-	readyLarge := false                                // Set when n-t-quality pre-block is received
-	smallPb := utils.NewPreBlock(abc.cfg.n)            // Small pre-pointer
-	readySmall := false                                // Set when n-t-quality pre-block is received
-	readyChan := make(chan struct{}, 9999)             // Notify when ready == true
-	ptrChan := make(chan struct{}, 9999)               // Notify when ptr != nil
-	mesRec := make(map[int]bool)                       // NodeId -> message received
-	var ptr *utils.BlockPointer                        // Blockpointer
-	largeBlockChan := make(chan *utils.PreBlock, 9999) // Buffer for received large pre-blocks
-	pbChan := make(chan *utils.PreBlock, 9999)         // Chan for pre-block that matches ptr from acs
+	largePb := utils.NewPreBlock(abc.cfg.n - abc.cfg.t) // large pre-block
+	readyLarge := false                                 // Set when n-t-quality pre-block is received
+	smallPb := utils.NewPreBlock(abc.cfg.n - abc.cfg.t) // Small pre-pointer
+	readySmall := false                                 // Set when n-t-quality pre-block is received
+	readyChan := make(chan struct{}, 9999)              // Notify when ready == true
+	ptrChan := make(chan struct{}, 9999)                // Notify when ptr != nil
+	mesRec := make(map[int]bool)                        // NodeId -> message received
+	var ptr *utils.BlockPointer                         // Blockpointer
+	largeBlockChan := make(chan *utils.PreBlock, 9999)  // Buffer for received large pre-blocks
+	pbChan := make(chan *utils.PreBlock, 9999)          // Chan for pre-block that matches ptr from acs
 	decChan := make(chan [][]*tcpaillier.DecryptionShare, abc.cfg.n*99)
 
 	// Listener functions that handles incoming messages
@@ -204,20 +214,19 @@ func (abc *ABC) runProtocol(r int) {
 
 	// At time 0 propose transactions:
 	go func() {
-		l := abc.cfg.n * abc.cfg.n * abc.cfg.kappa
+		// TODO: l should be multiplied by kappa. But then we have splitted transactions?
+		l := abc.cfg.n * abc.cfg.n
 		v := abc.proposeTxs(l/abc.cfg.n, l)
 		w := abc.proposeTxs(l/abc.cfg.n, l)
 
 		// Encrypt each v_i in v and send it to node_i
-		// TODO: how to handle the case where the buffer is not large enough and v can't be splitted
-		// into n txs?
 		//log.Printf("Node %d: is sending small blocks to nodes", abc.cfg.nodeId)
 		for i, tx := range v {
 			abc.handleSmallTransaction(i, r, tx)
 		}
 
 		// Encrypt w and send it to each committee member
-		//log.Printf("Node %d: is sending a large block to the committee", abc.cfg.nodeId)
+		// log.Printf("Node %d: is sending a large block to the committee", abc.cfg.nodeId)
 		abc.handleLargeTransaction(r, w)
 	}()
 
@@ -371,10 +380,11 @@ func (abc *ABC) constructBlock(r int, b []*utils.PreBlock, decChan chan [][]*tcp
 				if share != nil {
 					decshares[i][j] = append(decshares[i][j], share)
 				}
-				if len(decshares[i][j]) > abc.cfg.n/2 {
+				if len(decshares[i][j]) >= len(abc.cfg.committee) {
 					dec, err := abc.tcs.encPk.CombineShares(decshares[i][j]...)
 					if err != nil {
 						log.Printf("Node %d: failed to decrypt ciphertext. %s", abc.cfg.nodeId, err)
+						continue
 					}
 					txs = append(txs, dec.Bytes())
 					//log.Printf("Node %d: %d - %s", abc.cfg.nodeId, j, dec.Bytes())
@@ -413,7 +423,7 @@ func (abc *ABC) sendDecryptionShares(r int, acsOutput []*utils.BlockShare) {
 			}
 			tmp := new(big.Int)
 			tmp.SetBytes(v.Message)
-			decShare, err := abc.tcs.encSk.PartialDecrypt(tmp)
+			decShare, err := abc.tcs.committeeKeys.encSk.PartialDecrypt(tmp)
 			if err != nil {
 				log.Printf("Node %d: is unable to partially decrypt message[%d]: %s. %s", abc.cfg.nodeId, j, v.Message, err)
 				continue
@@ -460,7 +470,7 @@ func (abc *ABC) waitForMatchingBlock(r int, ptr *utils.BlockPointer, largeBlockC
 			for i, v := range pb.Vec {
 				tmp := new(big.Int)
 				tmp.SetBytes(v.Message)
-				decShare, err := abc.tcs.encSk.PartialDecrypt(tmp)
+				decShare, err := abc.tcs.committeeKeys.encSk.PartialDecrypt(tmp)
 				if err != nil {
 					log.Printf("Node %d: is unable to partially decrypt message[%d]: %s. %s", abc.cfg.nodeId, i, v.Message, err)
 					continue
@@ -488,7 +498,7 @@ func (abc *ABC) isWellFormedBlockShare(bs *utils.BlockShare) bool {
 	if bs == nil {
 		return false
 	}
-	err := rsa.VerifyPKCS1v15(abc.tcs.keyMeta.PublicKey, crypto.SHA256, bs.Pointer.BlockHash, bs.Pointer.Sig)
+	err := rsa.VerifyPKCS1v15(abc.tcs.keyMetaC.PublicKey, crypto.SHA256, bs.Pointer.BlockHash, bs.Pointer.Sig)
 	return err == nil
 }
 
@@ -596,12 +606,12 @@ func (abc *ABC) handleLargeBlockMessage(r int, m *blockMessage, b *utils.PreBloc
 			//log.Printf("Node %d: has a %d-quality pre-block", abc.cfg.nodeId, b.Quality())
 			*rdy = true
 			h := b.Hash()
-			paddedHash, err := tcrsa.PrepareDocumentHash(abc.tcs.keyMeta.PublicKey.Size(), crypto.SHA256, h[:])
+			paddedHash, err := tcrsa.PrepareDocumentHash(abc.tcs.keyMetaC.PublicKey.Size(), crypto.SHA256, h[:])
 			if err != nil {
 				log.Printf("Node %d: failed to create a padded hash", abc.cfg.nodeId)
 				return
 			}
-			sig, err := abc.tcs.sigSk.Sign(paddedHash, crypto.SHA256, abc.tcs.keyMeta)
+			sig, err := abc.tcs.committeeKeys.sigSk.Sign(paddedHash, crypto.SHA256, abc.tcs.keyMetaC)
 			if err != nil {
 				log.Printf("Node %d: failed to sign pre-block hash", abc.cfg.nodeId)
 				return
@@ -640,7 +650,7 @@ func (abc *ABC) handlePointerMessage(r int, m *pointerMessage, ptr **utils.Block
 	}
 	// If node is in committee check if pointer is well-formed, multicast it
 	if abc.cfg.committee[abc.cfg.nodeId] {
-		err := rsa.VerifyPKCS1v15(abc.tcs.keyMeta.PublicKey, crypto.SHA256, m.pointer.BlockHash, m.pointer.Sig)
+		err := rsa.VerifyPKCS1v15(abc.tcs.keyMetaC.PublicKey, crypto.SHA256, m.pointer.BlockHash, m.pointer.Sig)
 		if err != nil {
 			log.Printf("Node %d: received block pointer with invalid signature: %s", abc.cfg.nodeId, err)
 			return
@@ -682,12 +692,12 @@ func (abc *ABC) handleCommitteeMessage(r int, m *committeeMessage, ptr **utils.B
 	// pointer is nil.
 	if !mesRec[m.sender] && ptr == nil {
 		mesRec[m.sender] = true
-		paddedHash, err := tcrsa.PrepareDocumentHash(abc.tcs.keyMeta.PublicKey.Size(), crypto.SHA256, m.hash[:])
+		paddedHash, err := tcrsa.PrepareDocumentHash(abc.tcs.keyMetaC.PublicKey.Size(), crypto.SHA256, m.hash[:])
 		if err != nil {
 			log.Printf("Node %d: failed to hash pre-block", abc.cfg.nodeId)
 			return
 		}
-		hashSig, err := abc.tcs.sigSk.Sign(paddedHash, crypto.SHA256, abc.tcs.keyMeta)
+		hashSig, err := abc.tcs.committeeKeys.sigSk.Sign(paddedHash, crypto.SHA256, abc.tcs.keyMeta)
 		if err != nil {
 			log.Printf("Node %d: failed to sign hash of pre-block", abc.cfg.nodeId)
 			return
@@ -716,8 +726,9 @@ func (abc *ABC) handleCommitteeMessage(r int, m *committeeMessage, ptr **utils.B
 	}
 	blocksReceived[m.hash][m.sender] = m.hashSig
 	// TODO: num of block needs to be >= abc.cfg.tk+1. But we need n/2+1 sigshares
-	if len(blocksReceived[m.hash]) >= abc.cfg.n/2+1 {
-		//log.Printf("Node %d: received enough committee messages on same pre-block. Creating signature", abc.cfg.nodeId)
+	// TODO: committee member bekommen eigenes key setup, dann klappt auch tk+1
+	if len(blocksReceived[m.hash]) >= len(abc.cfg.committee) {
+		// TODO: only do this once
 		// for _, v := range m.preBlock.Vec {
 		// 	log.Printf("Node %d: %x", abc.cfg.nodeId, v.Message)
 		// }
@@ -725,15 +736,17 @@ func (abc *ABC) handleCommitteeMessage(r int, m *committeeMessage, ptr **utils.B
 		for _, s := range blocksReceived[m.hash] {
 			sigShares = append(sigShares, s)
 		}
-		h, err := tcrsa.PrepareDocumentHash(abc.tcs.keyMeta.PublicKey.Size(), crypto.SHA256, m.hash[:])
+		h, err := tcrsa.PrepareDocumentHash(abc.tcs.keyMetaC.PublicKey.Size(), crypto.SHA256, m.hash[:])
 		if err != nil {
 			log.Printf("Node %d: failed to pad block hash", abc.cfg.nodeId)
 			return
 		}
-		signature, err := sigShares.Join(h, abc.tcs.keyMeta)
+		signature, err := sigShares.Join(h, abc.tcs.keyMetaC)
 		if err != nil {
-			log.Printf("Node %d: failed to create signature on pre-block hash. %s", abc.cfg.nodeId, err)
+			log.Printf("Node %d round %d: failed to create signature on pre-block hash. %s", abc.cfg.nodeId, r, err)
+			return
 		}
+		//log.Printf("Node %d round %d: received enough committee messages on same pre-block. Creating signature", abc.cfg.nodeId, r)
 
 		bPtr := utils.NewBlockPointer(m.hash[:], signature)
 
@@ -770,12 +783,13 @@ func (abc *ABC) isValidCommitteeMessage(m *committeeMessage) bool {
 	}
 
 	// Condition 2:
-	paddedHash, err = tcrsa.PrepareDocumentHash(abc.tcs.keyMeta.PublicKey.Size(), crypto.SHA256, m.hash[:])
+	// Use committee exclusive pki
+	paddedHash, err = tcrsa.PrepareDocumentHash(abc.tcs.keyMetaC.PublicKey.Size(), crypto.SHA256, m.hash[:])
 	if err != nil {
 		log.Printf("Node %d: unable to pad block hash", abc.cfg.nodeId)
 		return false
 	}
-	if err = m.hashSig.Verify(paddedHash, abc.tcs.keyMeta); err != nil {
+	if err = m.hashSig.Verify(paddedHash, abc.tcs.keyMetaC); err != nil {
 		log.Printf("Node %d: received invalid committee message: invalid signature on hash: %s", abc.cfg.nodeId, err)
 		return false
 	}

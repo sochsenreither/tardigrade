@@ -1,0 +1,168 @@
+=== RUN   TestSimpleTest
+Key setup took 1.673254355s
+BLA setup took 22.671927ms
+ACS setup took 1.103748ms
+ABC setup took 21.525µs
+Creating random buffers took 622.709µs
+Setup done, starting simulation...
+2022/03/08 18:35:30 Node 1: starting round 0
+2022/03/08 18:35:30 Node 0: starting round 0
+2022/03/08 18:35:30 Node 4: starting round 0
+2022/03/08 18:35:30 Node 2: starting round 0
+2022/03/08 18:35:30 Node 3: starting round 0
+2022/03/08 18:35:30 Node 3: starting round 1
+2022/03/08 18:35:30 Node 2: starting round 1
+2022/03/08 18:35:30 Node 0: starting round 1
+2022/03/08 18:35:30 Node 1: starting round 1
+2022/03/08 18:35:30 Node 4: starting round 1
+2022/03/08 18:35:30 Node 4 round 0: finishing with 25 transactions and successful bla
+2022/03/08 18:35:30 Node 0 round 0: finishing with 25 transactions and successful bla
+2022/03/08 18:35:30 Node 1 round 0: finishing with 25 transactions and successful bla
+2022/03/08 18:35:30 Node 2 round 0: finishing with 25 transactions and successful bla
+2022/03/08 18:35:30 Node 3 round 0: finishing with 25 transactions and successful bla
+2022/03/08 18:35:30 Node 2: starting round 2
+2022/03/08 18:35:30 Node 1: starting round 2
+2022/03/08 18:35:30 Node 3: starting round 2
+2022/03/08 18:35:30 Node 4: starting round 2
+2022/03/08 18:35:30 Node 0: starting round 2
+2022/03/08 18:35:31 Node 4 round 1: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 0 round 1: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 1 round 1: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 2 round 1: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 3 round 1: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 1: starting round 3
+2022/03/08 18:35:31 Node 2: starting round 3
+2022/03/08 18:35:31 Node 0: starting round 3
+2022/03/08 18:35:31 Node 4: starting round 3
+2022/03/08 18:35:31 Node 3: starting round 3
+2022/03/08 18:35:31 Node 4 round 2: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 2 round 2: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 3 round 2: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 0 round 2: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 1 round 2: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 1: starting round 4
+2022/03/08 18:35:31 Node 2: starting round 4
+2022/03/08 18:35:31 Node 0: starting round 4
+2022/03/08 18:35:31 Node 4: starting round 4
+2022/03/08 18:35:31 Node 3: starting round 4
+2022/03/08 18:35:31 Node 4 round 3: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 0 round 3: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 1 round 3: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 2 round 3: finishing with 25 transactions and successful bla
+2022/03/08 18:35:31 Node 3 round 3: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 3: starting round 5
+2022/03/08 18:35:32 Node 4: starting round 5
+2022/03/08 18:35:32 Node 0: starting round 5
+2022/03/08 18:35:32 Node 1: starting round 5
+2022/03/08 18:35:32 Node 2: starting round 5
+2022/03/08 18:35:32 Node 4 round 4: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 0 round 4: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 1 round 4: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 2 round 4: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 3 round 4: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 3: starting round 6
+2022/03/08 18:35:32 Node 4: starting round 6
+2022/03/08 18:35:32 Node 1: starting round 6
+2022/03/08 18:35:32 Node 2: starting round 6
+2022/03/08 18:35:32 Node 0: starting round 6
+2022/03/08 18:35:32 Node 4 round 5: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 0 round 5: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 1 round 5: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 2 round 5: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 3 round 5: finishing with 25 transactions and successful bla
+2022/03/08 18:35:32 Node 4: starting round 7
+2022/03/08 18:35:32 Node 2: starting round 7
+2022/03/08 18:35:32 Node 3: starting round 7
+2022/03/08 18:35:32 Node 1: starting round 7
+2022/03/08 18:35:32 Node 0: starting round 7
+2022/03/08 18:35:33 Node 4 round 6: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 0 round 6: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 1 round 6: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 2 round 6: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 3 round 6: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 0: starting round 8
+2022/03/08 18:35:33 Node 2: starting round 8
+2022/03/08 18:35:33 Node 3: starting round 8
+2022/03/08 18:35:33 Node 1: starting round 8
+2022/03/08 18:35:33 Node 4: starting round 8
+2022/03/08 18:35:33 Node 4 round 7: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 1 round 7: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 2 round 7: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 0 round 7: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 3 round 7: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 3: starting round 9
+2022/03/08 18:35:33 Node 1: starting round 9
+2022/03/08 18:35:33 Node 4: starting round 9
+2022/03/08 18:35:33 Node 2: starting round 9
+2022/03/08 18:35:33 Node 0: starting round 9
+2022/03/08 18:35:33 Node 4 round 8: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 0 round 8: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 1 round 8: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 2 round 8: finishing with 25 transactions and successful bla
+2022/03/08 18:35:33 Node 3 round 8: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 4: starting round 10
+2022/03/08 18:35:34 Node 1: starting round 10
+2022/03/08 18:35:34 Node 0: starting round 10
+2022/03/08 18:35:34 Node 2: starting round 10
+2022/03/08 18:35:34 Node 3: starting round 10
+2022/03/08 18:35:34 Node 4 round 9: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 0 round 9: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 1 round 9: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 2 round 9: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 3 round 9: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 1: starting round 11
+2022/03/08 18:35:34 Node 0: starting round 11
+2022/03/08 18:35:34 Node 2: starting round 11
+2022/03/08 18:35:34 Node 3: starting round 11
+2022/03/08 18:35:34 Node 4: starting round 11
+2022/03/08 18:35:34 Node 4 round 10: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 0 round 10: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 1 round 10: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 2 round 10: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 3 round 10: finishing with 25 transactions and successful bla
+2022/03/08 18:35:34 Node 2: starting round 12
+2022/03/08 18:35:34 Node 0: starting round 12
+2022/03/08 18:35:34 Node 1: starting round 12
+2022/03/08 18:35:35 Node 3: starting round 12
+2022/03/08 18:35:35 Node 4: starting round 12
+2022/03/08 18:35:35 Node 0: starting round 13
+2022/03/08 18:35:35 Node 1: starting round 13
+2022/03/08 18:35:35 Node 2: starting round 13
+2022/03/08 18:35:35 Node 3: starting round 13
+2022/03/08 18:35:35 Node 4: starting round 13
+2022/03/08 18:35:35 Node 4 round 11: finishing with 25 transactions and failed bla
+2022/03/08 18:35:35 Node 0 round 11: finishing with 25 transactions and failed bla
+2022/03/08 18:35:35 Node 1 round 11: finishing with 25 transactions and failed bla
+2022/03/08 18:35:35 Node 2 round 11: finishing with 25 transactions and failed bla
+2022/03/08 18:35:35 Node 3 round 11: finishing with 25 transactions and failed bla
+2022/03/08 18:35:35 Node 1: starting round 14
+2022/03/08 18:35:35 Node 2: starting round 14
+2022/03/08 18:35:35 Node 0: starting round 14
+2022/03/08 18:35:36 Node 3: starting round 14
+2022/03/08 18:35:36 Node 4: starting round 14
+2022/03/08 18:35:36 Node 4 round 12: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 2 round 12: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 0 round 12: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 1 round 12: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 3 round 12: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 4 round 13: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 1 round 13: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 2 round 13: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 0 round 13: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 3 round 13: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 1 round 14: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 1: exiting
+2022/03/08 18:35:36 Node 2 round 14: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 2: exiting
+2022/03/08 18:35:36 Node 3 round 14: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 3: exiting
+2022/03/08 18:35:36 Node 0 round 14: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 0: exiting
+2022/03/08 18:35:36 Node 4 round 14: finishing with 25 transactions and failed bla
+2022/03/08 18:35:36 Node 4: exiting
+Execution time: 6.558612s
+Total transactions: 375
+Transactions per second: 57.18206770356816
+--- PASS: TestSimpleTest (8.26s)
+PASS
+ok  	github.com/sochsenreither/upgrade/upgrade	8.603s

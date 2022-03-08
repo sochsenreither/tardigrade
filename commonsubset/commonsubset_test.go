@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
-	"github.com/sochsenreither/upgrade/utils"
 	aba "github.com/sochsenreither/upgrade/binaryagreement"
 	rbc "github.com/sochsenreither/upgrade/broadcast"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 func TestACSSameValue(t *testing.T) {
@@ -22,11 +22,12 @@ func TestACSSameValue(t *testing.T) {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	keyShares, keyMeta, coin := setupKeys(n)
 	committee := make(map[int]bool)
 	committee[0] = true
 	committee[1] = true
 	committee[2] = true
+	keyShares, keyMeta, coin, keySharesC, keyMetaC := setupKeys(n, committee)
+
 
 	// Setup pre-block with four messages "zero" and a corresponding block-share.
 	preBlock := utils.NewPreBlock(n)
@@ -81,8 +82,12 @@ func TestACSSameValue(t *testing.T) {
 	for i := 0; i < n; i++ {
 		tc := &ThresholdCrypto{
 			Sk: keyShares[i],
-			KeyMeta:  keyMeta,
+			KeyMeta: keyMeta,
 			SigShare: rbcs[i][0].Sig.SigShare,
+			KeyMetaC: keyMetaC,
+		}
+		if committee[i] {
+			tc.SkC = keySharesC[i]
 		}
 		cfg := &ACSConfig{
 			N:       n,
@@ -128,17 +133,16 @@ func TestACSSameValue(t *testing.T) {
 }
 
 func TestACSDifferentValues(t *testing.T) {
-	n := 4
+	n := 7
 	ta := 0
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	keyShares, keyMeta, coin := setupKeys(n)
 	committee := make(map[int]bool)
 	committee[0] = true
 	committee[1] = true
-	committee[2] = true
-	inputs := [4][]byte{[]byte("zero"), []byte("one"), []byte("two"), []byte("three")}
+	keyShares, keyMeta, coin, keySharesC, keyMetaC := setupKeys(n, committee)
+	inputs := [7][]byte{[]byte("zero"), []byte("one"), []byte("two"), []byte("three"), []byte("four"), []byte("five"), []byte("six")}
 	var blockShares []*utils.BlockShare
 	for i := 0; i < n; i++ {
 		blockShares = append(blockShares, setupBlockShare(n, i, inputs[i], keyShares[i], keyMeta))
@@ -188,6 +192,10 @@ func TestACSDifferentValues(t *testing.T) {
 			Sk: keyShares[i],
 			KeyMeta: keyMeta,
 			SigShare: rbcs[i][0].Sig.SigShare,
+			KeyMetaC: keyMetaC,
+		}
+		if committee[i] {
+			tc.SkC = keySharesC[i]
 		}
 		cfg := &ACSConfig{
 				N:        n,
@@ -367,8 +375,13 @@ func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 	return broadcasts
 }
 
-func setupKeys(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta, *aba.CommonCoin) {
+func setupKeys(n int, committee map[int]bool) (tcrsa.KeyShareList, *tcrsa.KeyMeta, *aba.CommonCoin, tcrsa.KeyShareList, *tcrsa.KeyMeta) {
+	k := len(committee)
 	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
+	if err != nil {
+		panic(err)
+	}
+	keySharesC, keyMetaC, err := tcrsa.NewKey(512, uint16(k/2+1), uint16(k), nil)
 	if err != nil {
 		panic(err)
 	}
@@ -376,7 +389,7 @@ func setupKeys(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta, *aba.CommonCoin) {
 	commonCoin := aba.NewCommonCoin(n, keyMeta, requestChannel)
 	go commonCoin.Run()
 
-	return keyShares, keyMeta, commonCoin
+	return keyShares, keyMeta, commonCoin, keySharesC, keyMetaC
 }
 
 func setupBlockShare(n, i int, mes []byte, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta) *utils.BlockShare {

@@ -5,8 +5,6 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
-	// "log"
-
 	"strconv"
 	"sync"
 
@@ -15,9 +13,6 @@ import (
 	rbc "github.com/sochsenreither/upgrade/broadcast"
 	"github.com/sochsenreither/upgrade/utils"
 )
-
-// TODO:
-// - hash size?
 
 type CommonSubset struct {
 	UROUND    int
@@ -41,12 +36,8 @@ type ThresholdCrypto struct {
 	Sk       *tcrsa.KeyShare // Private signing key
 	KeyMeta  *tcrsa.KeyMeta  // Contains public keys to verify signatures
 	SigShare *tcrsa.SigShare // Signature on node index signed by the dealer
-}
-
-type acsMessage struct {
-	sender   int
-	values   []*utils.BlockShare
-	sigShare *tcrsa.SigShare // sigShare on values
+	KeyMetaC *tcrsa.KeyMeta  // Contains public keys to verify signatures of committee members
+	SkC       *tcrsa.KeyShare // Private signing key for committee members
 }
 
 type acsSignatureMessage struct {
@@ -189,8 +180,8 @@ func (acs *CommonSubset) Run() {
 		case mes := <-messageChan:
 			switch m := mes.Payload.(type) {
 			case *acsSignatureMessage:
-				// TODO: fix this maybe?
 				if receivedHash != nil && signature != nil {
+					// TODO: Can this really happen?
 					break
 				}
 				h, s := acs.handleSignatureMessage(m)
@@ -366,14 +357,14 @@ func (acs *CommonSubset) hashValues(values []*utils.BlockShare) [32]byte {
 	return hash
 }
 
-// signHash signs a given hash
+// signHash signs a given hash. Only committee member will call this.
 func (acs *CommonSubset) signHash(hash [32]byte) (*tcrsa.SigShare, error) {
-	paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMetaC.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		//log.Printf("Node %d UROUND %d failed to create padded hash", acs.nodeId, acs.UROUND)
 		return nil, err
 	}
-	sig, err := acs.tc.Sk.Sign(paddedHash, crypto.SHA256, acs.tc.KeyMeta)
+	sig, err := acs.tc.SkC.Sign(paddedHash, crypto.SHA256, acs.tc.KeyMetaC)
 	return sig, err
 }
 
@@ -390,20 +381,19 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 		sharesReceived[m.hash] = make(map[int]*tcrsa.SigShare)
 	}
 	sharesReceived[m.hash][m.sender] = m.sigShare
-	// log.Printf("Node %d received commit from %d, total received: %d", acs.nodeId, m.sender, len(sharesReceived[m.hash]))
-	// TODO: can't create signature with less than n/2+1 shares. This is a restriction by the used library. Following the paper the value should be tk+1.
-	if len(sharesReceived[m.hash]) >= acs.n/2+1 {
+	//log.Printf("Node %d received commit from %d, total received: %d, needed %d", acs.nodeId, m.sender, len(sharesReceived[m.hash]), acs.tk+1)
+	if len(sharesReceived[m.hash]) >= acs.tk+1 {
 		// log.Printf("Node %d received enough valid signature shares, creating signature", acs.nodeId)
 		var sigShares tcrsa.SigShareList
 		for _, sig := range sharesReceived[m.hash] {
 			sigShares = append(sigShares, sig)
 		}
-		paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, m.hash[:])
+		paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMetaC.PublicKey.Size(), crypto.SHA256, m.hash[:])
 		if err != nil {
 			// log.Printf("Node %d failed to create padded hash", acs.nodeId)
 			return nil, nil
 		}
-		signature, err := sigShares.Join(paddedHash, acs.tc.KeyMeta)
+		signature, err := sigShares.Join(paddedHash, acs.tc.KeyMetaC)
 		if err != nil {
 			// log.Printf("Node %d failed to create joined signature, %s", acs.nodeId, err)
 			return nil, nil
@@ -425,7 +415,7 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 
 // handleSignatureMessage verifies a combined signature and if it is valid multicasts it.
 func (acs *CommonSubset) handleSignatureMessage(m *acsSignatureMessage) ([]byte, tcrsa.Signature) {
-	err := rsa.VerifyPKCS1v15(acs.tc.KeyMeta.PublicKey, crypto.SHA256, m.hash[:], *m.sig)
+	err := rsa.VerifyPKCS1v15(acs.tc.KeyMetaC.PublicKey, crypto.SHA256, m.hash[:], *m.sig)
 	if err != nil {
 		// log.Printf("Node %d received signature message with invalid signature", acs.nodeId)
 		return nil, nil
@@ -450,15 +440,17 @@ func (acs *CommonSubset) isValidSignature(m *acsCommitteeMessage) bool {
 		// log.Printf("Node %d received message with invalid hash", acs.nodeId)
 		return false
 	}
-	paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMetaC.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		// log.Printf("Node %d failed to create padded hash", acs.nodeId)
 		return false
 	}
-	if err = m.sigShare.Verify(paddedHash, acs.tc.KeyMeta); err != nil {
+	if err = m.sigShare.Verify(paddedHash, acs.tc.KeyMetaC); err != nil {
 		// log.Printf("Node %d received commit with invalid signature", acs.nodeId)
 		return false
 	}
+
+	// Verify nodeId
 	hash = sha256.Sum256([]byte(strconv.Itoa(m.sender)))
 	paddedHash, err = tcrsa.PrepareDocumentHash(acs.tc.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
