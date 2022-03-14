@@ -4,29 +4,30 @@ import (
 	"crypto"
 	"crypto/sha256"
 
-	//"log"
+	// "log"
 	"strconv"
 	"sync"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 // TODO: abstract common coin call
 
 type BinaryAgreement struct {
-	UROUND int
-	n               int                   // Number of nodes
-	nodeId          int                   // Id of node
-	t               int                   // Number of maximum faulty nodes
-	value           int                   // Initial input
-	round           int                   // Current round of aba, not the round of the top protocol
-	instance        int                   // Id of the current instance
-	coin            *CommonCoin           // Common coin for randomness
-	thresholdCrypto *ThresholdCrypto      // Struct containing the secret key and key meta
-	multicast       func(msg *AbaMessage) // Function for multicasting
-	receive         func() *AbaMessage    // Blocking function for receiving messages
-	out             chan int              // Output channel
-	sync.Mutex                            // Lock
+	UROUND          int
+	n               int                      // Number of nodes
+	nodeId          int                      // Id of node
+	t               int                      // Number of maximum faulty nodes
+	value           int                      // Initial input
+	round           int                      // Current round of aba, not the round of the top protocol
+	instance        int                      // Id of the current instance
+	coin            *CommonCoin              // Common coin for randomness
+	thresholdCrypto *ThresholdCrypto         // Struct containing the secret key and key meta
+	multicast       func(msg *utils.Message) // Function for multicasting
+	receive         func() *utils.Message    // Blocking function for receiving messages
+	out             chan int                 // Output channel
+	sync.Mutex                               // Lock
 }
 
 type AbaMessage struct {
@@ -41,9 +42,10 @@ type ThresholdCrypto struct {
 	KeyMeta  *tcrsa.KeyMeta
 }
 
-func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thresholdCrypto *ThresholdCrypto, multicastFunc func(nodeId, instance, round int, msg *AbaMessage), receiveFunc func(nodeId, instance, round int) *AbaMessage) *BinaryAgreement {
+func NewBinaryAgreement(UROUND, n, nodeId, t, value, instance int, coin *CommonCoin, thresholdCrypto *ThresholdCrypto, handler *utils.Handler) *BinaryAgreement {
 	out := make(chan int, 100)
 	aba := &BinaryAgreement{
+		UROUND:          UROUND,
 		n:               n,
 		nodeId:          nodeId,
 		t:               t,
@@ -52,23 +54,21 @@ func NewBinaryAgreement(n, nodeId, t, value, instance int, coin *CommonCoin, thr
 		instance:        instance,
 		coin:            coin,
 		thresholdCrypto: thresholdCrypto,
-		multicast:       nil,
-		receive:         nil,
 		out:             out,
 	}
 
-	multicast := func(msg *AbaMessage) {
-		multicastFunc(aba.nodeId, instance, aba.round, msg)
-	}
-	receive := func() *AbaMessage {
+	aba.multicast = func(msg *utils.Message) {
 		aba.Lock()
 		r := aba.round
 		aba.Unlock()
-		return receiveFunc(aba.nodeId, instance, r)
+		handler.Funcs.ABAmulticast(msg, aba.UROUND, r, aba.instance)
 	}
-
-	aba.multicast = multicast
-	aba.receive = receive
+	aba.receive = func() *utils.Message {
+		aba.Lock()
+		r := aba.round
+		aba.Unlock()
+		return handler.Funcs.ABAreceive(aba.UROUND, r, aba.instance)
+	}
 
 	return aba
 }
@@ -91,52 +91,56 @@ func (aba *BinaryAgreement) Run() {
 
 	messageHandler := func() {
 		for {
-			m := aba.receive()
-			r, v, s := m.round, m.value, m.sender
-			switch m.status {
-			case "EST":
-				// // log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received EST from", s, "on", v)
-				handleBcs(r, v, s, estValues)
+			msg := aba.receive()
+			switch m := msg.Payload.(type) {
+			case *AbaMessage:
+				r, v, s := m.round, m.value, m.sender
+				switch m.status {
+				case "EST":
+					// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received EST from", s, "on", v)
+					handleBcs(r, v, s, estValues)
 
-				// If a node received t+1 messages on value from distinct nodes, it multicasts this value (only once).
-				if len(estValues[r][v]) >= aba.t+1 {
-					//// log.Println("Round", aba.round, "-",  aba.nodeId, "received t+1 ESTs")
-					aba.echoEST(r, v, aba.nodeId, estEchoes)
-				}
-
-				// If a node received 2t+1 messages on value from distinct nodes, it adds this value to its binary value list.
-				if len(estValues[r][v]) >= 2*aba.t+1 {
-					if binValues[r] == nil {
-						binValues[r] = make(map[int]bool)
+					// If a node received t+1 messages on value from distinct nodes, it multicasts this value (only once).
+					if len(estValues[r][v]) >= aba.t+1 {
+						//// log.Println("Round", aba.round, "-",  aba.nodeId, "received t+1 ESTs")
+						aba.echoEST(r, v, aba.nodeId, estEchoes)
 					}
-					binValues[r][v] = true
+
+					// If a node received 2t+1 messages on value from distinct nodes, it adds this value to its binary value list.
+					if len(estValues[r][v]) >= 2*aba.t+1 {
+						if binValues[r] == nil {
+							binValues[r] = make(map[int]bool)
+						}
+						binValues[r][v] = true
+						aba.Lock()
+						if notifyEST[r] == nil {
+							notifyEST[r] = make(chan []int, 999)
+						}
+						aba.Unlock()
+						//// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received 2t+1 ESTs, updating values")
+						notifyEST[r] <- []int{v}
+					}
+				case "AUX":
+					//// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received AUX from", s, "on", v)
+					handleBcs(r, v, s, auxValues)
 					aba.Lock()
-					if notifyEST[r] == nil {
-						notifyEST[r] = make(chan []int, 999)
+					if notifyAUX[r] == nil {
+						notifyAUX[r] = make(chan []int, 999)
 					}
 					aba.Unlock()
-					//// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received 2t+1 ESTs, updating values")
-					notifyEST[r] <- []int{v}
-				}
-			case "AUX":
-				//// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received AUX from", s, "on", v)
-				handleBcs(r, v, s, auxValues)
-				aba.Lock()
-				if notifyAUX[r] == nil {
-					notifyAUX[r] = make(chan []int, 999)
-				}
-				aba.Unlock()
 
-				// If a node received n-t AUX messages on value(s) from distinct nodes, it can proceed in the algorithm. TODO: better description
-				if binValues[r][0] && len(auxValues[r][0]) >= aba.n-aba.t {
-					notifyAUX[r] <- []int{0}
+					// If a node received n-t AUX messages on value(s) from distinct nodes, it can proceed in the algorithm. TODO: better description
+					if binValues[r][0] && len(auxValues[r][0]) >= aba.n-aba.t {
+						notifyAUX[r] <- []int{0}
+					}
+					if binValues[r][1] && len(auxValues[r][1]) >= aba.n-aba.t {
+						notifyAUX[r] <- []int{1}
+					}
+					if len(binValues[r]) == 2 && len(auxValues[r][0])+len(auxValues[r][1]) >= aba.n-aba.t {
+						notifyAUX[r] <- []int{0, 1}
+					}
 				}
-				if binValues[r][1] && len(auxValues[r][1]) >= aba.n-aba.t {
-					notifyAUX[r] <- []int{1}
-				}
-				if len(binValues[r]) == 2 && len(auxValues[r][0])+len(auxValues[r][1]) >= aba.n-aba.t {
-					notifyAUX[r] <- []int{0, 1}
-				}
+
 			}
 		}
 	}
@@ -145,7 +149,7 @@ func (aba *BinaryAgreement) Run() {
 		// Start message handler
 		go messageHandler()
 
-		//log.Println("Node:", aba.nodeId, "----- new round:", aba.round, "-----", "instance:", aba.instance)
+		//// log.Println("Node:", aba.nodeId, "----- new round:", aba.round, "-----", "instance:", aba.instance)
 		aba.Lock()
 		if notifyEST[aba.round] == nil {
 			notifyEST[aba.round] = make(chan []int, 999)
@@ -182,7 +186,7 @@ func (aba *BinaryAgreement) Run() {
 				aba.out <- coin
 				return
 			} else {
-				//// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "sets est to", values[0])
+				// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "sets est to", values[0])
 				est = values[0]
 			}
 		} else {
@@ -219,9 +223,13 @@ func (aba *BinaryAgreement) sendEST(round, value, sender int, estSent map[int]ma
 			round:  round,
 			status: "EST",
 		}
+		m := &utils.Message{
+			Sender:  sender,
+			Payload: mes,
+		}
 
 		//// log.Println("Round", aba.round, "-",  aba.nodeId, "multicasting EST. val:", value, "round:", round)
-		aba.multicast(mes)
+		aba.multicast(m)
 	}
 }
 
@@ -238,8 +246,12 @@ func (aba *BinaryAgreement) echoEST(round, value, sender int, estEchoes map[int]
 			round:  round,
 			status: "EST",
 		}
+		m := &utils.Message{
+			Sender:  sender,
+			Payload: mes,
+		}
 		//// log.Println("Round", aba.round, "-",  aba.nodeId, "echoing EST. val:", value, "round:", round)
-		aba.multicast(mes)
+		aba.multicast(m)
 	}
 }
 
@@ -251,7 +263,11 @@ func (aba *BinaryAgreement) sendAUX(round, value, sender int) {
 		round:  round,
 		status: "AUX",
 	}
-	aba.multicast(mes)
+	m := &utils.Message{
+		Sender:  sender,
+		Payload: mes,
+	}
+	aba.multicast(m)
 }
 
 // callCommonCoin calls the common coin and blocks until it returns a value.
@@ -267,6 +283,7 @@ func (aba *BinaryAgreement) callCommonCoin() int {
 	// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "sending request to coin")
 	aba.coin.RequestChan <- &CoinRequest{
 		sender:   aba.nodeId,
+		UROUND:   aba.UROUND,
 		round:    aba.round,
 		sig:      sig,
 		answer:   answerChan,

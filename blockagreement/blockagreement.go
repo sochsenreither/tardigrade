@@ -1,6 +1,7 @@
 package blockagreement
 
 import (
+
 	// "log"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 )
 
 type BlockAgreement struct {
+	UROUND                  int
 	n                       int                    // Number of nodes
 	nodeId                  int                    // Id of node
 	t                       int                    // Number of maximum faulty nodes
@@ -20,14 +22,31 @@ type BlockAgreement struct {
 	out                     chan *utils.BlockShare // Output channel
 	gradedConsensusProtocol *gradedConsensus       // Underlying protocol
 	tickerChan              chan int               // Timer for synchronizing
-	delta                   int          // Round timer
+	delta                   int                    // Round timer
 	ticker                  func()                 // Ticker function that ticks every delta milliseconds
 }
 
-func NewBlockAgreement(n, nodeId, t, kappa int, blockShare *utils.BlockShare, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta, leaderFunc func(round, n int) int, delta int, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *BlockAgreement {
+func NewBlockAgreement(UROUND, n, nodeId, t, kappa int, blockShare *utils.BlockShare, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta, leaderFunc func(round, n int) int, delta int, handler *utils.Handler) *BlockAgreement {
+	multicast := func(msg *utils.Message, round int, receiver ...int) {
+		if len(receiver) == 1 {
+			handler.Funcs.BLAmulticast(msg, UROUND, round, receiver[0])
+		} else {
+			handler.Funcs.BLAmulticast(msg, UROUND, round, -1)
+		}
+	}
+	c := make(chan *utils.Message, 99999)
+	receive := func(id, round int) chan *utils.Message {
+		go func() {
+			for {
+				val := handler.Funcs.BLAreceive(UROUND, round)
+				c <- val
+			}
+		}()
+		return c
+	}
 	tcs := &thresholdCrypto{
 		keyShare: keyShare,
-		keyMeta: keyMeta,
+		keyMeta:  keyMeta,
 	}
 	tickerChan := make(chan int, 99999)
 	ticker := func() {
@@ -51,7 +70,7 @@ func NewBlockAgreement(n, nodeId, t, kappa int, blockShare *utils.BlockShare, ke
 		blockShare: blockShare,
 		commits:    nil,
 	}
-	gradedConsensus := NewGradedConsensus(n, nodeId, t, 0, tickerChan, vote, tcs, leaderFunc, multicastFunc, receiveFunc)
+	gradedConsensus := NewGradedConsensus(n, nodeId, t, 0, tickerChan, vote, tcs, leaderFunc, multicast, receive)
 
 	blockAgreement := &BlockAgreement{
 		n:                       n,

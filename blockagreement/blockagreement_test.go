@@ -4,7 +4,6 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"fmt"
-	"log"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ import (
 type testBlockAgreementInstance struct {
 	n               int
 	ts              int
-	nodeChans       map[int][]chan *utils.Message
+	nodeChans       map[int]chan *utils.HandlerMessage
 	bas             []*BlockAgreement
 	thresholdCrypto []*thresholdCrypto
 	delta           int
@@ -27,7 +26,7 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta int) 
 	ba := &testBlockAgreementInstance{
 		n:               n,
 		ts:              ts,
-		nodeChans:       make(map[int][]chan *utils.Message),
+		nodeChans:       make(map[int]chan *utils.HandlerMessage),
 		bas:             make([]*BlockAgreement, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
 		delta:           delta,
@@ -37,6 +36,11 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta int) 
 	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
 	if err != nil {
 		panic(err)
+	}
+
+	var handlers []*utils.Handler
+	for i := 0; i < n; i++ {
+		ba.nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
 	}
 
 	// Fill pre-block with enough valid messages
@@ -55,51 +59,15 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta int) 
 		pre.AddMessage(i, preMes)
 	}
 
-	// TODO: change to real sig
 	h := pre.Hash()
 	blockPointer := utils.NewBlockPointer(h[:], []byte{0})
 	blockShare := utils.NewBlockShare(pre, blockPointer)
 
-	var mu sync.Mutex
-	multicast := func(id, round int, msg *utils.Message, params ...int) {
-		go func() {
-			var chans []chan *utils.Message
-			mu.Lock()
-			if ba.nodeChans[round] == nil {
-				ba.nodeChans[round] = make([]chan *utils.Message, n)
-				for i := 0; i < n; i++ {
-					ba.nodeChans[round][i] = make(chan *utils.Message, 9999*n)
-				}
-			}
-			// Set channels to send to to different variable in order to prevent data/lock races
-			chans = append(chans, ba.nodeChans[round]...)
-			mu.Unlock()
-			if len(params) == 1 {
-				chans[params[0]] <- msg
-			} else {
-				for i := 0; i < n; i++ {
-					chans[i] <- msg
-				}
-			}
-		}()
-	}
-
-	receive := func(id, round int) chan *utils.Message {
-		mu.Lock()
-		if ba.nodeChans[round] == nil {
-			ba.nodeChans[round] = make([]chan *utils.Message, n)
-			for i := 0; i < n; i++ {
-				ba.nodeChans[round][i] = make(chan *utils.Message, 9999*n)
-			}
-		}
-		ch := ba.nodeChans[round][id]
-		mu.Unlock()
-		return ch
-	}
-
 	// Set up individual block agreement protocols
 	for i := 0; i < n; i++ {
-		ba.bas[i] = NewBlockAgreement(n, i, ts, ba.kappa, blockShare, keyShares[i], keyMeta, leader, ba.delta, multicast, receive)
+		// Create new handler
+		handlers = append(handlers, utils.NewHandler(ba.nodeChans, i, n, kappa))
+		ba.bas[i] = NewBlockAgreement(0, n, i, ts, ba.kappa, blockShare, keyShares[i], keyMeta, leader, ba.delta, handlers[i])
 	}
 
 	return ba
@@ -113,7 +81,7 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 	ba := &testBlockAgreementInstance{
 		n:               n,
 		ts:              ts,
-		nodeChans:       make(map[int][]chan *utils.Message),
+		nodeChans:       make(map[int]chan *utils.HandlerMessage),
 		bas:             make([]*BlockAgreement, n),
 		thresholdCrypto: make([]*thresholdCrypto, n),
 		delta:           delta,
@@ -123,6 +91,11 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
 	if err != nil {
 		panic(err)
+	}
+
+	var handlers []*utils.Handler
+	for i := 0; i < n; i++ {
+		ba.nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
 	}
 
 	// Setup valid input
@@ -160,46 +133,11 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 		blockShares[i] = blockShare
 	}
 
-	var mu sync.Mutex
-	multicast := func(id, round int, msg *utils.Message, params ...int) {
-		go func() {
-			var chans []chan *utils.Message
-			mu.Lock()
-			if ba.nodeChans[round] == nil {
-				ba.nodeChans[round] = make([]chan *utils.Message, n)
-				for i := 0; i < n; i++ {
-					ba.nodeChans[round][i] = make(chan *utils.Message, 9999*n)
-				}
-			}
-			// Set channels to send to to different variable in order to prevent data/lock races
-			chans = append(chans, ba.nodeChans[round]...)
-			mu.Unlock()
-			if len(params) == 1 {
-				chans[params[0]] <- msg
-			} else {
-				for i := 0; i < n; i++ {
-					chans[i] <- msg
-				}
-			}
-		}()
-	}
-
-	receive := func(id, round int) chan *utils.Message {
-		mu.Lock()
-		if ba.nodeChans[round] == nil {
-			ba.nodeChans[round] = make([]chan *utils.Message, n)
-			for i := 0; i < n; i++ {
-				ba.nodeChans[round][i] = make(chan *utils.Message, 9999*n)
-			}
-		}
-		ch := ba.nodeChans[round][id]
-		mu.Unlock()
-		return ch
-	}
-
 	// Set up individual block agreement protocols
 	for i := 0; i < n; i++ {
-		ba.bas[i] = NewBlockAgreement(n, i, ts, ba.kappa, nil, keyShares[i], keyMeta, leader, ba.delta, multicast, receive)
+		// Create new handler
+		handlers = append(handlers, utils.NewHandler(ba.nodeChans, i, n, kappa))
+		ba.bas[i] = NewBlockAgreement(0, n, i, ts, ba.kappa, nil, keyShares[i], keyMeta, leader, ba.delta, handlers[i])
 		ba.bas[i].SetInput(blockShares[i])
 	}
 
@@ -272,35 +210,5 @@ func TestBAEveryoneOutputsSameBlockWithDifferentInput(t *testing.T) {
 			}
 		}
 		prevHash = val.Hash()
-	}
-}
-
-// func printBlock(pre *utils.PreBlock) {
-// 	for i,m := range pre.Vec {
-// 		fmt.Printf("Index: %d, Message: %s\n", i, m.Message)
-// 	}
-// }
-
-func baTicker(chans []chan int, interval time.Duration, maxTicks int, killchan chan struct{}) {
-	ticker := time.NewTicker(interval)
-	counter := 1
-
-	for {
-		select {
-		case <-ticker.C:
-			log.Println("Tick:", counter)
-			for _, c := range chans {
-				c <- counter % 6
-			}
-			counter++
-
-			if counter == maxTicks {
-				log.Println("Ticker terminating")
-				return
-			}
-		case <-killchan:
-			log.Println("Ticker terminating")
-			return
-		}
 	}
 }

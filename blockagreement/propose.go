@@ -26,7 +26,7 @@ type proposeProtocol struct {
 }
 
 // Returns a new propose protocol instance
-func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *proposeProtocol {
+func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, multicastFunc func(msg *utils.Message, round int, receiver ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *proposeProtocol {
 	out := make(chan *utils.BlockShare, n)
 	p := &proposeProtocol{
 		n:               n,
@@ -42,7 +42,7 @@ func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vo
 	}
 
 	multicast := func(msg *utils.Message, params ...int) {
-		multicastFunc(nodeId, p.round, msg, params...)
+		multicastFunc(msg, p.round, params...)
 	}
 	receive := func() chan *utils.Message {
 		return receiveFunc(nodeId, p.round)

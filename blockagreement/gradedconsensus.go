@@ -2,7 +2,7 @@ package blockagreement
 
 import (
 	"crypto"
-	// "log"
+	//"log"
 
 	"github.com/niclabs/tcrsa"
 	"github.com/sochsenreither/upgrade/utils"
@@ -24,7 +24,7 @@ type gradedConsensus struct {
 }
 
 // Returns a new graded consensus protocol instance
-func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, leaderFunc func(round, n int) int, multicastFunc func(nodeId, round int, msg *utils.Message, params ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *gradedConsensus {
+func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, leaderFunc func(round, n int) int, multicastFunc func(msg *utils.Message, round int, receiver ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *gradedConsensus {
 	out := make(chan *gradedConsensusResult, 100)
 	propose := NewProposeProtocol(n, nodeId, t, -1, round, tickerChan, vote, thresthresholdCrypto, multicastFunc, receiveFunc)
 
@@ -41,7 +41,7 @@ func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote
 	}
 
 	multicast := func(msg *utils.Message, params ...int) {
-		multicastFunc(nodeId, gc.round, msg, params...)
+		multicastFunc(msg, gc.round ,params...)
 	}
 	receive := func() chan *utils.Message {
 		return receiveFunc(nodeId, gc.round)

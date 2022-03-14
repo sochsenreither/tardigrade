@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
+	//"log"
 	"strconv"
 	"sync"
 
@@ -20,7 +21,6 @@ type CommonSubset struct {
 	nodeId    int                      // Id of node
 	t         int                      // Number of maximum faulty nodes
 	tk        int                      // Threshold for distinct committee messages
-	round     int                      // Current round
 	committee map[int]bool             // List of committee members
 	input     *utils.BlockShare        // Input value
 	out       chan []*utils.BlockShare // Output values
@@ -35,7 +35,7 @@ type CommonSubset struct {
 type ThresholdCrypto struct {
 	Sk       *tcrsa.KeyShare // Private signing key
 	KeyMeta  *tcrsa.KeyMeta  // Contains public keys to verify signatures
-	SigShare *tcrsa.SigShare // Signature on node index signed by the dealer
+	Proof *tcrsa.SigShare // Signature on node index signed by the dealer
 	KeyMetaC *tcrsa.KeyMeta  // Contains public keys to verify signatures of committee members
 	SkC       *tcrsa.KeyShare // Private signing key for committee members
 }
@@ -60,32 +60,31 @@ type ACSConfig struct {
 	T       int
 	Kappa   int
 	Epsilon int
-	Round   int
+	UROUND int
 }
 
-func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, multicastFunc func(nodeId, round int, msg *utils.Message), receiveFunc func(nodeId, round int) *utils.Message) *CommonSubset {
+func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, handler *utils.Handler) *CommonSubset {
 	out := make(chan []*utils.BlockShare, 100)
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
-	multicast := func(msg *utils.Message) {
-		multicastFunc(cfg.NodeId, cfg.Round, msg)
-	}
-	receive := func() *utils.Message {
-		return receiveFunc(cfg.NodeId, cfg.Round)
-	}
+
 	acs := &CommonSubset{
+		UROUND: cfg.UROUND,
 		n:         cfg.N,
 		nodeId:    cfg.NodeId,
 		t:         cfg.T,
 		tk:        tk,
-		round:     cfg.Round,
 		committee: comittee,
 		input:     input,
 		out:       out,
 		Rbcs:      rbcs,
 		Abas:      abas,
 		tc:        sig,
-		multicast: multicast,
-		receive:   receive,
+	}
+	acs.multicast = func(msg *utils.Message) {
+		handler.Funcs.ACSmulticast(msg, acs.UROUND)
+	}
+	acs.receive = func() *utils.Message {
+		return handler.Funcs.ACSreceive(acs.UROUND)
 	}
 	return acs
 }
@@ -146,7 +145,7 @@ func (acs *CommonSubset) Run() {
 			// log.Printf("Node %d starting rbc instance %d", acs.nodeId, i)
 			go acs.Rbcs[i].Run()
 			rbcOut := acs.Rbcs[i].GetValue()
-			// log.Printf("Node %d got output from rbc instance %d: %s", acs.nodeId, i, string(rbcOut))
+			// log.Printf("Node %d got output from rbc instance %d: %x", acs.nodeId, i, rbcOut.Hash())
 			acs.Lock()
 			rbcVals[i] = rbcOut
 			rbcDone <- i
@@ -235,7 +234,8 @@ func (acs *CommonSubset) cOne(rbcVals map[int]*utils.BlockShare) (bool, *utils.B
 	return false, nil
 }
 
-// cTwoHelper returns whether all aba instances have terminated, |s| >= n-t and wheter val is returned by the majority of rbc instances.
+// cTwoHelper returns whether all aba instances have terminated, |s| >= n-t and whether val is
+// returned by the majority of rbc instances.
 func (acs *CommonSubset) cTwoHelper(val *utils.BlockShare, rbcVals map[int]*utils.BlockShare, s map[int]bool, abaFinished map[int]bool) bool {
 	if len(s) < acs.n-acs.t {
 		return false
@@ -269,7 +269,7 @@ func (acs *CommonSubset) cTwo(rbcVals map[int]*utils.BlockShare, s map[int]bool,
 
 // cThree returns whether |s| >= n-t and all executions of rbc and aba have terminated.
 func (acs *CommonSubset) cThree(rbcVals map[int]*utils.BlockShare, s map[int]bool, abaFinished map[int]bool) bool {
-	return len(s) >= acs.n-acs.t && len(abaFinished) == acs.n && len(rbcVals) == acs.n
+	return len(s) >= acs.n-acs.t && len(abaFinished) == acs.n-acs.t && len(rbcVals) == acs.n-acs.t
 }
 
 // eventHandler checks for the three output conditions and sends a commit message if one condition
@@ -335,7 +335,7 @@ func (acs *CommonSubset) multicastCommit(values []*utils.BlockShare) {
 		values:   values,
 		hash:     hash,
 		sigShare: sig,
-		proof:    acs.tc.SigShare,
+		proof:    acs.tc.Proof,
 	}
 	mes := &utils.Message{
 		Sender:  acs.nodeId,
@@ -361,7 +361,7 @@ func (acs *CommonSubset) hashValues(values []*utils.BlockShare) [32]byte {
 func (acs *CommonSubset) signHash(hash [32]byte) (*tcrsa.SigShare, error) {
 	paddedHash, err := tcrsa.PrepareDocumentHash(acs.tc.KeyMetaC.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
-		//log.Printf("Node %d UROUND %d failed to create padded hash", acs.nodeId, acs.UROUND)
+		//// log.Printf("Node %d UROUND %d failed to create padded hash", acs.nodeId, acs.UROUND)
 		return nil, err
 	}
 	sig, err := acs.tc.SkC.Sign(paddedHash, crypto.SHA256, acs.tc.KeyMetaC)
@@ -381,7 +381,7 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 		sharesReceived[m.hash] = make(map[int]*tcrsa.SigShare)
 	}
 	sharesReceived[m.hash][m.sender] = m.sigShare
-	//log.Printf("Node %d received commit from %d, total received: %d, needed %d", acs.nodeId, m.sender, len(sharesReceived[m.hash]), acs.tk+1)
+	//// log.Printf("Node %d received commit from %d, total received: %d, needed %d", acs.nodeId, m.sender, len(sharesReceived[m.hash]), acs.tk+1)
 	if len(sharesReceived[m.hash]) >= acs.tk+1 {
 		// log.Printf("Node %d received enough valid signature shares, creating signature", acs.nodeId)
 		var sigShares tcrsa.SigShareList
@@ -466,7 +466,7 @@ func (acs *CommonSubset) isValidSignature(m *acsCommitteeMessage) bool {
 
 // canTerminate returns whether the termination conditions are met.
 func (acs *CommonSubset) canTerminate(acsFinished []*utils.BlockShare, signature tcrsa.Signature, receivedHash []byte) bool {
-	//log.Printf("Node %d UROUND %d checking termination", acs.nodeId, acs.UROUND)
+	//// log.Printf("Node %d UROUND %d checking termination", acs.nodeId, acs.UROUND)
 	if acsFinished == nil || signature == nil || receivedHash == nil {
 		return false
 	}

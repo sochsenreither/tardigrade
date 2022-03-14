@@ -73,7 +73,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 	}
 
 	var mu sync.Mutex
-	multicast := func(id, round int, msg *utils.Message, params ...int) {
+	multicast := func(msg *utils.Message, round int, params ...int) {
 		go func() {
 			var chans []chan *utils.Message
 			mu.Lock()
@@ -109,7 +109,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 		return ch
 	}
 
-	// TODO: change to real sig
+	// No valid signature for testing purposes
 	h := pre.Hash()
 	blockPointer := utils.NewBlockPointer(h[:], []byte{0})
 	blockShare := utils.NewBlockShare(pre, blockPointer)

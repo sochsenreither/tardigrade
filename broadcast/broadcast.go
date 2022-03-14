@@ -11,11 +11,8 @@ import (
 	"github.com/sochsenreither/upgrade/utils"
 )
 
-// TODO:
-// - hash length is hardcoded to 32 for now
-
 type ReliableBroadcast struct {
-	UROUND int
+	UROUND    int
 	n         int                      // Number of nodes
 	nodeId    int                      // Id of node
 	t         int                      // Number of maximum faulty nodes
@@ -30,7 +27,7 @@ type ReliableBroadcast struct {
 }
 
 type Signature struct {
-	SigShare *tcrsa.SigShare // Signature on node index signed by the dealer
+	Proof *tcrsa.SigShare // Signature on node index signed by the dealer
 	KeyMeta  *tcrsa.KeyMeta  // Contains public keys to verify signatures
 }
 
@@ -56,25 +53,21 @@ type SMessage struct {
 }
 
 type ReliableBroadcastConfig struct {
+	UROUND   int
 	N        int
 	NodeId   int
 	T        int
 	Kappa    int
 	Epsilon  int
 	SenderId int
-	Round    int
+	Instance int
 }
 
-func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, sig *Signature, multicastFunc func(nodeId, instance, round int, msg *utils.Message), receiveFunc func(nodeId, instance, round int) *utils.Message) *ReliableBroadcast {
+func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, sig *Signature, handler *utils.Handler) *ReliableBroadcast {
 	out := make(chan *utils.BlockShare, 100)
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
-	multicast := func(msg *utils.Message) {
-		multicastFunc(cfg.NodeId, cfg.SenderId, cfg.Round, msg)
-	}
-	receive := func() *utils.Message {
-		return receiveFunc(cfg.NodeId, cfg.SenderId, cfg.Round)
-	}
 	rbc := &ReliableBroadcast{
+		UROUND:    cfg.UROUND,
 		n:         cfg.N,
 		nodeId:    cfg.NodeId,
 		t:         cfg.T,
@@ -84,8 +77,12 @@ func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, 
 		value:     nil,
 		out:       out,
 		Sig:       sig,
-		multicast: multicast,
-		receive:   receive,
+	}
+	rbc.multicast = func(msg *utils.Message) {
+		handler.Funcs.RBCmulticast(msg, rbc.UROUND, cfg.Instance)
+	}
+	rbc.receive = func() *utils.Message {
+		return handler.Funcs.RBCreceive(rbc.UROUND, cfg.Instance)
 	}
 	return rbc
 }
@@ -219,6 +216,7 @@ func (rbc *ReliableBroadcast) handleCommitteeMessage(m *CMessage, committeeRecei
 
 	// Upon receiving messages on the same value v from tk+1 distinct committee members, output v
 	// and terminate.
+	// log.Printf("Node %d instance %d checking.. %d - %d", rbc.nodeId, rbc.senderId, len(committeeReceived[m.hash]), rbc.tk+1)
 	if len(committeeReceived[m.hash]) >= rbc.tk+1 {
 		// log.Printf("Node %d UROUND %d, instance %d: outputting '%x' and terminating..", rbc.nodeId, rbc.UROUND, rbc.senderId, (m.value.Hash()))
 		rbc.out <- m.value
@@ -292,7 +290,7 @@ func (rbc *ReliableBroadcast) multicastCommitteeMessage(senderValue *utils.Block
 				sender: rbc.nodeId,
 				value:  senderValue,
 				hash:   broadcastValue,
-				proof:  rbc.Sig.SigShare,
+				proof:  rbc.Sig.Proof,
 			},
 		}
 		rbc.multicast(mes)
