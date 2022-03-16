@@ -45,8 +45,8 @@ func NewBlockAgreement(UROUND, n, nodeId, t, kappa int, blockShare *utils.BlockS
 		return c
 	}
 	tcs := &thresholdCrypto{
-		keyShare: keyShare,
-		keyMeta:  keyMeta,
+		KeyShare: keyShare,
+		KeyMeta:  keyMeta,
 	}
 	tickerChan := make(chan int, 99999)
 	ticker := func() {
@@ -66,9 +66,9 @@ func NewBlockAgreement(UROUND, n, nodeId, t, kappa int, blockShare *utils.BlockS
 	}
 	out := make(chan *utils.BlockShare, n*9999)
 	vote := &vote{
-		round:      0,
-		blockShare: blockShare,
-		commits:    nil,
+		Round:      0,
+		BlockShare: blockShare,
+		Commits:    nil,
 	}
 	gradedConsensus := NewGradedConsensus(n, nodeId, t, 0, tickerChan, vote, tcs, leaderFunc, multicast, receive)
 
@@ -123,14 +123,14 @@ func (ba *BlockAgreement) Run() {
 // Updates the votes for running the underlying protocols
 func (ba *BlockAgreement) updateVotes() {
 	// Update vote in GC
-	ba.gradedConsensusProtocol.vote.round = ba.round
-	ba.gradedConsensusProtocol.vote.blockShare = ba.blockShare
-	ba.gradedConsensusProtocol.vote.commits = ba.commits
+	ba.gradedConsensusProtocol.vote.Round = ba.round
+	ba.gradedConsensusProtocol.vote.BlockShare = ba.blockShare
+	ba.gradedConsensusProtocol.vote.Commits = ba.commits
 
 	// Update vote for propose
-	ba.gradedConsensusProtocol.proposeProtocol.vote.round = ba.round
-	ba.gradedConsensusProtocol.proposeProtocol.vote.blockShare = ba.blockShare
-	ba.gradedConsensusProtocol.proposeProtocol.vote.commits = ba.commits
+	ba.gradedConsensusProtocol.proposeProtocol.vote.Round = ba.round
+	ba.gradedConsensusProtocol.proposeProtocol.vote.BlockShare = ba.blockShare
+	ba.gradedConsensusProtocol.proposeProtocol.vote.Commits = ba.commits
 }
 
 func (ba *BlockAgreement) incrementRound() {
@@ -150,9 +150,9 @@ func (ba *BlockAgreement) GetValue() *utils.BlockShare {
 // SetInput sets the input
 func (ba *BlockAgreement) SetInput(bs *utils.BlockShare) {
 	vote := &vote{
-		round:      0,
-		blockShare: bs,
-		commits:    nil,
+		Round:      0,
+		BlockShare: bs,
+		Commits:    nil,
 	}
 	ba.blockShare = bs
 	// This also sets the vote for the propose protocol

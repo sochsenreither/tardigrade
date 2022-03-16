@@ -86,14 +86,14 @@ func TestProposeTxs(t *testing.T) {
 
 func TestSimpleTest(t *testing.T) {
 	// Note: Increase keysize of pk enc when increasing number of nodes or tx size
-	n := 6
-	delta := 45
-	lambda := 100
+	n := 5
+	delta := 1
+	lambda := 10
 	txSize := 8
 	kappa := 2
 	cfg := setupConfig(n, 0, 0, kappa, delta, 0, lambda, txSize)
 
-	maxRounds := 10
+	maxRounds := 5
 	abcs := setupSimulation(cfg)
 
 	fmt.Println("Setup done, starting simulation...")
@@ -138,7 +138,7 @@ func TestSimpleTest(t *testing.T) {
 
 func setupSimulation(cfg *testConfig) []*ABC {
 	// Create common coin
-	req := make(chan *aba.CoinRequest, 9999)
+	req := make(chan *utils.CoinRequest, 9999)
 	coin := aba.NewCommonCoin(cfg.n, cfg.keyMeta, req)
 	go coin.Run()
 
@@ -156,7 +156,7 @@ func setupSimulation(cfg *testConfig) []*ABC {
 
 	abcs := make([]*ABC, cfg.n)
 	for i := 0; i < cfg.n; i++ {
-		handlers = append(handlers, utils.NewHandler(nodeChans, i, cfg.n, cfg.kappa))
+		handlers = append(handlers, utils.NewHandler(nodeChans, coin.RequestChan, i, cfg.n, cfg.kappa))
 		tcs := &tcs{
 			keyMeta:       cfg.keyMeta,
 			keyMetaC:      cfg.keyMetaC,
@@ -168,7 +168,7 @@ func setupSimulation(cfg *testConfig) []*ABC {
 		if cfg.committee[i] {
 			committeeKeys := &committeeKeys{
 				sigSk: cfg.sigKeysC[i],
-				encSk: *cfg.encKeysC[i],
+				encSk: cfg.encKeysC[i],
 			}
 			tcs.committeeKeys = committeeKeys
 		}
@@ -186,7 +186,6 @@ func setupSimulation(cfg *testConfig) []*ABC {
 			txSize:     cfg.txSize,
 			leaderFunc: leaderFunc,
 			handler:    handlers[i],
-			coin:       coin,
 		}
 		abcs[i] = NewABC(c, tcs)
 	}

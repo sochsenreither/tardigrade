@@ -286,14 +286,14 @@ func (gc *gradedConsensus) newSignedCommitMessage(bs *utils.BlockShare) (*commit
 
 	// Create a hash of the sender, round and blockshare
 	hash := commitMes.HashWithoutSig()
-	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		// log.Println("--GC--", gc.nodeId, "was unanble to hash commitMessage:", err)
 		return nil, err
 	}
 
 	// Sign the hash
-	sigShare, err := gc.thresholdCrypto.keyShare.Sign(hashPadded, crypto.SHA256, gc.thresholdCrypto.keyMeta)
+	sigShare, err := gc.thresholdCrypto.KeyShare.Sign(hashPadded, crypto.SHA256, gc.thresholdCrypto.KeyMeta)
 	if err != nil {
 		// log.Println("--GC--", gc.nodeId, "was unable to sign commitMessage:", err)
 		return nil, err
@@ -306,12 +306,12 @@ func (gc *gradedConsensus) newSignedCommitMessage(bs *utils.BlockShare) (*commit
 // Verifys a given commitMessage
 func (gc *gradedConsensus) verifyCommitMessage(cm *commitMessage) bool {
 	hash := cm.HashWithoutSig()
-	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		// log.Println("--GC--", gc.nodeId, "was unanble to hash commitMessage while verifying:", err)
 		return false
 	}
-	if err = cm.sig.Verify(hashPadded, gc.thresholdCrypto.keyMeta); err != nil {
+	if err = cm.sig.Verify(hashPadded, gc.thresholdCrypto.KeyMeta); err != nil {
 		// log.Println("--GC--", gc.nodeId, "received invalid commitMessage signature from", cm.sender)
 		return false
 	}

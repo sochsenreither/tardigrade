@@ -12,29 +12,28 @@ import (
 	"github.com/sochsenreither/upgrade/utils"
 )
 
-// TODO: abstract common coin call
 
 type BinaryAgreement struct {
 	UROUND          int
-	n               int                      // Number of nodes
-	nodeId          int                      // Id of node
-	t               int                      // Number of maximum faulty nodes
-	value           int                      // Initial input
-	round           int                      // Current round of aba, not the round of the top protocol
-	instance        int                      // Id of the current instance
-	coin            *CommonCoin              // Common coin for randomness
-	thresholdCrypto *ThresholdCrypto         // Struct containing the secret key and key meta
-	multicast       func(msg *utils.Message) // Function for multicasting
-	receive         func() *utils.Message    // Blocking function for receiving messages
-	out             chan int                 // Output channel
-	sync.Mutex                               // Lock
+	n               int                               // Number of nodes
+	nodeId          int                               // Id of node
+	t               int                               // Number of maximum faulty nodes
+	value           int                               // Initial input
+	round           int                               // Current round of aba, not the round of the top protocol
+	instance        int                               // Id of the current instance
+	coinCall        func(msg *utils.CoinRequest) byte // Common coin for randomness
+	thresholdCrypto *ThresholdCrypto                  // Secret key and key meta for signing
+	multicast       func(msg *utils.Message)          // Function for multicasting
+	receive         func() *utils.Message             // Blocking function for receiving messages
+	out             chan int                          // Output channel
+	sync.Mutex                                        // Lock
 }
 
 type AbaMessage struct {
-	sender int
-	value  int
-	round  int
-	status string
+	Sender int
+	Value  int
+	Round  int
+	Status string
 }
 
 type ThresholdCrypto struct {
@@ -42,7 +41,7 @@ type ThresholdCrypto struct {
 	KeyMeta  *tcrsa.KeyMeta
 }
 
-func NewBinaryAgreement(UROUND, n, nodeId, t, value, instance int, coin *CommonCoin, thresholdCrypto *ThresholdCrypto, handler *utils.Handler) *BinaryAgreement {
+func NewBinaryAgreement(UROUND, n, nodeId, t, value, instance int, thresholdCrypto *ThresholdCrypto, handler *utils.Handler) *BinaryAgreement {
 	out := make(chan int, 100)
 	aba := &BinaryAgreement{
 		UROUND:          UROUND,
@@ -52,7 +51,7 @@ func NewBinaryAgreement(UROUND, n, nodeId, t, value, instance int, coin *CommonC
 		value:           value,
 		round:           0,
 		instance:        instance,
-		coin:            coin,
+		coinCall:        handler.Funcs.CoinCall,
 		thresholdCrypto: thresholdCrypto,
 		out:             out,
 	}
@@ -94,8 +93,8 @@ func (aba *BinaryAgreement) Run() {
 			msg := aba.receive()
 			switch m := msg.Payload.(type) {
 			case *AbaMessage:
-				r, v, s := m.round, m.value, m.sender
-				switch m.status {
+				r, v, s := m.Round, m.Value, m.Sender
+				switch m.Status {
 				case "EST":
 					// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "received EST from", s, "on", v)
 					handleBcs(r, v, s, estValues)
@@ -218,10 +217,10 @@ func (aba *BinaryAgreement) sendEST(round, value, sender int, estSent map[int]ma
 	if !estSent[round][value] {
 		estSent[round][value] = true
 		mes := &AbaMessage{
-			sender: sender,
-			value:  value,
-			round:  round,
-			status: "EST",
+			Sender: sender,
+			Value:  value,
+			Round:  round,
+			Status: "EST",
 		}
 		m := &utils.Message{
 			Sender:  sender,
@@ -241,10 +240,10 @@ func (aba *BinaryAgreement) echoEST(round, value, sender int, estEchoes map[int]
 	if !estEchoes[round][value] {
 		estEchoes[round][value] = true
 		mes := &AbaMessage{
-			sender: sender,
-			value:  value,
-			round:  round,
-			status: "EST",
+			Sender: sender,
+			Value:  value,
+			Round:  round,
+			Status: "EST",
 		}
 		m := &utils.Message{
 			Sender:  sender,
@@ -258,10 +257,10 @@ func (aba *BinaryAgreement) echoEST(round, value, sender int, estEchoes map[int]
 // sendAUX sends an AUX message.
 func (aba *BinaryAgreement) sendAUX(round, value, sender int) {
 	mes := &AbaMessage{
-		sender: sender,
-		value:  value,
-		round:  round,
-		status: "AUX",
+		Sender: sender,
+		Value:  value,
+		Round:  round,
+		Status: "AUX",
 	}
 	m := &utils.Message{
 		Sender:  sender,
@@ -278,20 +277,17 @@ func (aba *BinaryAgreement) callCommonCoin() int {
 	if err != nil {
 		// log.Panicln(aba.nodeId, "failed to create signature on round", aba.round)
 	}
-	answerChan := make(chan byte, 100)
 
 	// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "sending request to coin")
-	aba.coin.RequestChan <- &CoinRequest{
-		sender:   aba.nodeId,
+	msg := &utils.CoinRequest{
+		Sender:   aba.nodeId,
 		UROUND:   aba.UROUND,
-		round:    aba.round,
-		sig:      sig,
-		answer:   answerChan,
-		instance: aba.instance,
+		Round:    aba.round,
+		Sig:      sig,
+		Answer:   nil,
+		Instance: aba.instance,
 	}
-
-	val := <-answerChan
-	return int(val)
+	return int(aba.coinCall(msg))
 }
 
 // GetValue returns the output of the binary agreement (blocking)

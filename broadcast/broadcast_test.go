@@ -73,7 +73,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 		}
 
 		// Create new handler
-		handlers = append(handlers, utils.NewHandler(nodeChans, i, n, kappa))
+		handlers = append(handlers, utils.NewHandler(nodeChans, nil, i, n, kappa))
 
 		for j := 0; j < n; j++ {
 			config := &ReliableBroadcastConfig{

@@ -38,7 +38,7 @@ func TestACSSameValue(t *testing.T) {
 		nodeChans[i] = make(chan *utils.HandlerMessage, 9999)
 	}
 	for i := 0; i < n; i++ {
-		handlers = append(handlers, utils.NewHandler(nodeChans, i, n, kappa))
+		handlers = append(handlers, utils.NewHandler(nodeChans, coin.RequestChan, i, n, kappa))
 	}
 
 	abas := setupAba(n, ta, keyShares, keyMeta, coin, handlers)
@@ -114,7 +114,7 @@ func TestACSDifferentValues(t *testing.T) {
 		nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
 	}
 	for i := 0; i < n; i++ {
-		handlers = append(handlers, utils.NewHandler(nodeChans, i, n, kappa))
+		handlers = append(handlers, utils.NewHandler(nodeChans, coin.RequestChan, i, n, kappa))
 	}
 
 	abas := setupAba(n, ta, keyShares, keyMeta, coin, handlers)
@@ -178,7 +178,7 @@ func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 			KeyMeta:  keyMeta,
 		}
 		for j := 0; j < n; j++ {
-			abas[i] = append(abas[i], aba.NewBinaryAgreement(0, n, i, ta, 0, j, coin, thresholdCrypto, handlers[i]))
+			abas[i] = append(abas[i], aba.NewBinaryAgreement(0, n, i, ta, 0, j, thresholdCrypto, handlers[i]))
 		}
 	}
 
@@ -228,7 +228,7 @@ func setupKeys(n int, committee map[int]bool) (tcrsa.KeyShareList, *tcrsa.KeyMet
 	if err != nil {
 		panic(err)
 	}
-	requestChannel := make(chan *aba.CoinRequest, 99999)
+	requestChannel := make(chan *utils.CoinRequest, 99999)
 	commonCoin := aba.NewCommonCoin(n, keyMeta, requestChannel)
 	go commonCoin.Run()
 

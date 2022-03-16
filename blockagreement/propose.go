@@ -105,10 +105,10 @@ func (p *proposeProtocol) handleVotes(votes map[int]*voteMessage) {
 			switch v := voteMes.Payload.(type) {
 			case *voteMessage:
 				// If the signature is invalid or the pre-block is invalid discard the message
-				if p.verifyVoteMessage(v) && p.isValidBlockShare(v.vote.blockShare) {
+				if p.verifyVoteMessage(v) && p.isValidBlockShare(v.Vote.BlockShare) {
 					// log.Println("--P--", "Proposer received valid vote from", voteMes.Sender)
-					if votes[v.sender] == nil {
-						votes[v.sender] = v
+					if votes[v.Sender] == nil {
+						votes[v.Sender] = v
 					}
 				} else {
 					// log.Println("--P--", "Proposer received invalid signature or invalid pre-block")
@@ -157,7 +157,7 @@ func (p *proposeProtocol) handleProposals() {
 		case msg := <-p.receive():
 			switch proposal := msg.Payload.(type) {
 			case *proposeMessage:
-				if proposal.sender == p.proposerId {
+				if proposal.Sender == p.proposerId {
 					// Received proposal is from the proposer
 					// If the current node already received a message from the proposer ignore the next one (which will be a multicast forward)
 					if !received {
@@ -203,7 +203,7 @@ func (p *proposeProtocol) handleProposals() {
 					}
 				}
 				// log.Println("--P--", p.nodeId, "is outputting a block share")
-				p.out <- leaderProposal.vote.blockShare
+				p.out <- leaderProposal.Vote.BlockShare
 				return
 			}
 		}
@@ -219,8 +219,8 @@ func proposalsAreEqual(p1, p2 *proposeMessage) bool {
 func findMaxVote(votes map[int]*voteMessage) (maxVote *vote) {
 	var index int
 	for i, v := range votes {
-		if maxVote == nil || v.vote.round > maxVote.round || (v.vote.round == maxVote.round && i < index) {
-			index, maxVote = i, v.vote
+		if maxVote == nil || v.Vote.Round > maxVote.Round || (v.Vote.Round == maxVote.Round && i < index) {
+			index, maxVote = i, v.Vote
 		}
 	}
 	return maxVote
@@ -239,44 +239,44 @@ func (p *proposeProtocol) isValidProposal(proposal *proposeMessage) bool {
 		return false
 	}
 	// Check signature of every vote in V
-	for _, voteMessage := range proposal.voteMessages {
+	for _, voteMessage := range proposal.VoteMessages {
 		if !p.verifyVoteMessage(voteMessage) {
 			// log.Println("--P--", p.nodeId, "found invalid vote signature, vote:", voteMessage)
 			return false
 		}
 	}
 	// 2:
-	if !p.isValidBlockShare(proposal.vote.blockShare) {
+	if !p.isValidBlockShare(proposal.Vote.BlockShare) {
 		// log.Println("--P--", p.nodeId, "received invalid pre-block in proposal")
 		return false
 	}
 	// 3:
 	if p.round == 0 {
-		if proposal.vote.round != 0 || len(proposal.vote.commits) != 0 {
+		if proposal.Vote.Round != 0 || len(proposal.Vote.Commits) != 0 {
 			// log.Println("--P--", p.nodeId, "received proposal with invalid round r vote")
 			return false
 		}
 	} else {
-		if len(proposal.vote.commits) < p.t+1 {
+		if len(proposal.Vote.Commits) < p.t+1 {
 			// log.Println("--P--", p.nodeId, "received proposal that doesn't have enough commit messages")
 			return false
 		}
 		// TODO: check signature?
-		for _, c := range proposal.vote.commits {
-			if c.round > proposal.vote.round {
+		for _, c := range proposal.Vote.Commits {
+			if c.round > proposal.Vote.Round {
 				return false
 			}
 		}
 	}
 	// 4:
-	if len(proposal.voteMessages) < p.t+1 {
+	if len(proposal.VoteMessages) < p.t+1 {
 		// log.Println("--P--", p.nodeId, "received proposal that doesn't have enough votes")
 		return false
 	}
 	// 5:
-	round := proposal.vote.round
-	for _, vote := range proposal.voteMessages {
-		if round < vote.vote.round {
+	round := proposal.Vote.Round
+	for _, vote := range proposal.VoteMessages {
+		if round < vote.Vote.Round {
 			// log.Println("--P--", p.nodeId, "found a round number greater than the round number of the vote in the proposal")
 			return false
 		}
@@ -296,8 +296,8 @@ func (p *proposeProtocol) isValidBlockShare(bs *utils.BlockShare) bool {
 		}
 		// If the signature is invalid, the pre-block is invalid
 		h := sha256.Sum256(mes.Message)
-		hash, _ := tcrsa.PrepareDocumentHash(p.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, h[:])
-		if err := mes.Sig.Verify(hash, p.thresholdCrypto.keyMeta); err != nil {
+		hash, _ := tcrsa.PrepareDocumentHash(p.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, h[:])
+		if err := mes.Sig.Verify(hash, p.thresholdCrypto.KeyMeta); err != nil {
 			// log.Println("--P--", "Signature for message index", i, "in pre-block couldn't be verified.", err)
 			return false
 		}
@@ -311,26 +311,26 @@ func (p *proposeProtocol) isValidBlockShare(bs *utils.BlockShare) bool {
 func (p *proposeProtocol) newSignedVoteMessage() (*voteMessage, error) {
 	// Create a new voteMessage
 	voteMes := &voteMessage{
-		sender: p.nodeId,
-		sig:    nil,
-		vote:   p.vote,
+		Sender: p.nodeId,
+		Sig:    nil,
+		Vote:   p.vote,
 	}
 
 	// Create a hash of the sender and vote
 	hash := voteMes.HashWithoutSig()
-	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		// log.Println("--P--", p.nodeId, "was unanble to hash vote:", err)
 		return nil, err
 	}
 
 	// Sign the hash
-	sigShare, err := p.thresholdCrypto.keyShare.Sign(hashPadded, crypto.SHA256, p.thresholdCrypto.keyMeta)
+	sigShare, err := p.thresholdCrypto.KeyShare.Sign(hashPadded, crypto.SHA256, p.thresholdCrypto.KeyMeta)
 	if err != nil {
 		// log.Println("--P--", p.nodeId, "was unable to sign vote:", err)
 		return nil, err
 	}
-	voteMes.sig = sigShare
+	voteMes.Sig = sigShare
 
 	return voteMes, nil
 }
@@ -339,27 +339,27 @@ func (p *proposeProtocol) newSignedVoteMessage() (*voteMessage, error) {
 func (p *proposeProtocol) newSignedProposeMessage(vote *vote, votes map[int]*voteMessage) (*proposeMessage, error) {
 	// Create new proposeMessage
 	proposeMes := &proposeMessage{
-		sender:       p.nodeId,
-		vote:         vote,
-		voteMessages: votes,
-		sig:          nil,
+		Sender:       p.nodeId,
+		Vote:         vote,
+		VoteMessages: votes,
+		Sig:          nil,
 	}
 
 	// Create a hash of the sender, vote and voteMessages
 	hash := proposeMes.HashWithoutSig()
-	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		// log.Println("--P--", p.nodeId, "was unanble to hash proposal:", err)
 		return nil, err
 	}
 
 	// Sign the hash
-	sigShare, err := p.thresholdCrypto.keyShare.Sign(hashPadded, crypto.SHA256, p.thresholdCrypto.keyMeta)
+	sigShare, err := p.thresholdCrypto.KeyShare.Sign(hashPadded, crypto.SHA256, p.thresholdCrypto.KeyMeta)
 	if err != nil {
 		// log.Println("--P--", p.nodeId, "was unable to sign proposal:", err)
 		return nil, err
 	}
-	proposeMes.sig = sigShare
+	proposeMes.Sig = sigShare
 
 	return proposeMes, nil
 }
@@ -367,12 +367,12 @@ func (p *proposeProtocol) newSignedProposeMessage(vote *vote, votes map[int]*vot
 // Verifys a given voteMessage
 func (p *proposeProtocol) verifyVoteMessage(vm *voteMessage) bool {
 	hash := vm.HashWithoutSig()
-	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		// log.Println("--P--", p.nodeId, "was unable to hash vote while verifying:", err)
 		return false
 	}
-	if err = vm.sig.Verify(hashPadded, p.thresholdCrypto.keyMeta); err != nil {
+	if err = vm.Sig.Verify(hashPadded, p.thresholdCrypto.KeyMeta); err != nil {
 		// log.Println("--P--", p.nodeId, "received invalid vote signature from", vm.sender)
 		return false
 	}
@@ -382,12 +382,12 @@ func (p *proposeProtocol) verifyVoteMessage(vm *voteMessage) bool {
 // Verifys a given proposeMessage
 func (p *proposeProtocol) verifyProposeMessage(pm *proposeMessage) bool {
 	hash := pm.HashWithoutSig()
-	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
+	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		// log.Println("--P--", p.nodeId, "was unanble to hash proposal while verifying:", err)
 		return false
 	}
-	if err = pm.sig.Verify(hashPadded, p.thresholdCrypto.keyMeta); err != nil {
+	if err = pm.Sig.Verify(hashPadded, p.thresholdCrypto.KeyMeta); err != nil {
 		// log.Println("--P--", p.nodeId, "received invalid proposal signature from", pm.sender)
 		return false
 	}

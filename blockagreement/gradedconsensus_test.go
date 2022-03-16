@@ -100,14 +100,14 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 	// Set up individual graded consensus protocols
 	for i := 0; i < n; i++ {
 		vote := &vote{
-			round:    0,
-			blockShare: blockShare,
-			commits:  nil,
+			Round:    0,
+			BlockShare: blockShare,
+			Commits:  nil,
 		}
 		gc.tickers[i] = make(chan int, n*n*n)
 		gc.thresholdCrypto[i] = &thresholdCrypto{
-			keyShare: keyShares[i],
-			keyMeta:  keyMeta,
+			KeyShare: keyShares[i],
+			KeyMeta:  keyMeta,
 		}
 		gc.gcs[i] = NewGradedConsensus(n, i, ts, round, gc.tickers[i], vote, gc.thresholdCrypto[i], leader, multicast, receive)
 	}

@@ -1,7 +1,6 @@
 package utils
 
 import (
-	// "log"
 	"log"
 	"sync"
 )
@@ -25,13 +24,14 @@ type HandlerFuncs struct {
 	ACSreceive   func(UROUND int) *Message
 	ABCmulticast func(msg *Message, UROUND int, receiver int)
 	ABCreceive   func(UROUND int) *Message
+	CoinCall     func(msg *CoinRequest) byte
 }
 
 type HandlerMessage struct {
 	UROUND   int
 	Round    int
 	Instance int
-	origin   Origin
+	Origin   Origin
 	Payload  *Message
 }
 
@@ -50,7 +50,7 @@ type HandlerChans struct {
 	rLock    sync.RWMutex
 }
 
-func NewHandler(nodes map[int]chan *HandlerMessage, id, n, kappa int) *Handler {
+func NewHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, n, kappa int) *Handler {
 	// Create local channels. The handler will forward incoming messages to the correct local
 	// channels.
 	rbcChans := make(map[int][]chan *Message)         // UROUND -> instance
@@ -85,7 +85,7 @@ func NewHandler(nodes map[int]chan *HandlerMessage, id, n, kappa int) *Handler {
 			UROUND:   p[0],
 			Round:    p[1],
 			Instance: p[2],
-			origin:   origin,
+			Origin:   origin,
 			Payload:  msg,
 		}
 		// log.Printf("Node %d UROUND %d %d -> %T", msg.Sender, m.UROUND, m.origin, msg.Payload)
@@ -110,7 +110,6 @@ func NewHandler(nodes map[int]chan *HandlerMessage, id, n, kappa int) *Handler {
 		handlerChans.rLock.RLock()
 		if !handlerChans.round[p[0]] {
 			handlerChans.rLock.RUnlock()
-			log.Printf("Receive updating rounds for UROUND %d", p[0])
 			handlerChans.updateRound(p[0], n, kappa)
 		} else {
 			handlerChans.rLock.RUnlock()
@@ -176,40 +175,46 @@ func NewHandler(nodes map[int]chan *HandlerMessage, id, n, kappa int) *Handler {
 	}
 
 	// Create multicast and receive functions for the created channels.
-	// TODO: make multicast non-blocking
 	rbcMulticast := func(msg *Message, UROUND, instance int) {
-		multicast(msg, RBC, UROUND, 0, instance, -1)
+		go multicast(msg, RBC, UROUND, 0, instance, -1)
 	}
 	rbcReceive := func(UROUND, instance int) *Message {
 		return receive(RBC, UROUND, UROUND, instance)
 	}
 
 	abaMulticast := func(msg *Message, UROUND, round, instance int) {
-		multicast(msg, ABA, UROUND, round, instance, -1)
+		go multicast(msg, ABA, UROUND, round, instance, -1)
 	}
 	abaReceive := func(UROUND, round, instance int) *Message {
 		return receive(ABA, UROUND, round, instance)
 	}
 
 	blaMulticast := func(msg *Message, UROUND, round, receiver int) {
-		multicast(msg, BLA, UROUND, round, 0, receiver)
+		go multicast(msg, BLA, UROUND, round, 0, receiver)
 	}
 	blaReceive := func(UROUND, round int) *Message {
 		return receive(BLA, UROUND, round)
 	}
 
 	acsMulticast := func(msg *Message, UROUND int) {
-		multicast(msg, ACS, UROUND, 0, 0, -1)
+		go multicast(msg, ACS, UROUND, 0, 0, -1)
 	}
 	acsReceive := func(UROUND int) *Message {
 		return receive(ACS, UROUND)
 	}
 
 	abcMulticast := func(msg *Message, UROUND int, receiver int) {
-		multicast(msg, ABC, UROUND, 0, 0, receiver)
+		go multicast(msg, ABC, UROUND, 0, 0, receiver)
 	}
 	abcReceive := func(UROUND int) *Message {
 		return receive(ABC, UROUND)
+	}
+
+	coinCall := func(msg *CoinRequest) byte {
+		answer := make(chan byte, 100)
+		msg.Answer = answer
+		coin <- msg
+		return <-answer
 	}
 
 	// Receiver that assigns incoming messages to the correct channels
@@ -221,16 +226,14 @@ func NewHandler(nodes map[int]chan *HandlerMessage, id, n, kappa int) *Handler {
 			handlerChans.rLock.RLock()
 			if !handlerChans.round[msg.UROUND] {
 				handlerChans.rLock.RUnlock()
-				log.Printf("Receiver updating rounds for UROUND %d", msg.UROUND)
 				handlerChans.updateRound(msg.UROUND, n, kappa)
 			} else {
 
 				handlerChans.rLock.RUnlock()
 			}
 
-			switch msg.origin {
+			switch msg.Origin {
 			case ABA:
-				// TODO: Test this (set expected round duration to 1)
 				// Check if there are channels for the current round.
 				handlerChans.abaLock.RLock()
 				if abaChans[msg.UROUND][msg.Round] == nil {
@@ -296,6 +299,7 @@ func NewHandler(nodes map[int]chan *HandlerMessage, id, n, kappa int) *Handler {
 		ACSreceive:   acsReceive,
 		ABCmulticast: abcMulticast,
 		ABCreceive:   abcReceive,
+		CoinCall:     coinCall,
 	}
 
 	handler := &Handler{
@@ -307,13 +311,12 @@ func NewHandler(nodes map[int]chan *HandlerMessage, id, n, kappa int) *Handler {
 	return handler
 }
 
-// TODO: description
+// Creates channels for UROUND if there aren't any already.
 func (h *HandlerChans) updateRound(UROUND, n, kappa int) {
 	updatedRound := 1
 	h.rLock.Lock()
 	defer h.rLock.Unlock()
 	if h.round[UROUND] {
-		log.Printf("Aborting UROUND %d", UROUND)
 		return
 	}
 	h.round[UROUND] = true

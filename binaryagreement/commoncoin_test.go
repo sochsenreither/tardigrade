@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
+	"github.com/sochsenreither/upgrade/utils"
 )
 
 var wg sync.WaitGroup
@@ -63,14 +64,14 @@ func TestCoinIsBlocking(t *testing.T) {
 
 func setup(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta, *CommonCoin) {
 	keyShares, keyMeta, _ := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
-	requestChannel := make(chan *CoinRequest, 99999)
+	requestChannel := make(chan *utils.CoinRequest, 99999)
 	commonCoin := NewCommonCoin(n, keyMeta, requestChannel)
 	go commonCoin.Run()
 
 	return keyShares, keyMeta, commonCoin
 }
 
-func repeatRunner(t testing.TB, round, n int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, requestChan chan *CoinRequest, r int) {
+func repeatRunner(t testing.TB, round, n int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, requestChan chan *utils.CoinRequest, r int) {
 	t.Helper()
 	wg.Add(1)
 	defer wg.Done()
@@ -83,12 +84,12 @@ func repeatRunner(t testing.TB, round, n int, keyShares tcrsa.KeyShareList, keyM
 	for i := 0; i < n; i++ {
 		sigShares[i], _ = keyShares[i].Sign(hash, crypto.SHA256, keyMeta)
 		answerChans[i] = make(chan byte, 1234)
-		coinRequest := &CoinRequest{
-			sender: i,
-			round:  round,
-			sig:    sigShares[i],
-			answer: answerChans[i],
-			instance: 0,
+		coinRequest := &utils.CoinRequest{
+			Sender: i,
+			Round:  round,
+			Sig:    sigShares[i],
+			Answer: answerChans[i],
+			Instance: 0,
 		}
 		for i := 0; i < r; i++ {
 			requestChan <- coinRequest

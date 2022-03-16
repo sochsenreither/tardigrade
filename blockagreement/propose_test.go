@@ -117,15 +117,15 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 	// Set up individual propose protocols
 	for i := 0; i < n; i++ {
 		vote := &vote{
-			round:      0,
-			blockShare: blockShare,
-			commits:    nil,
+			Round:      0,
+			BlockShare: blockShare,
+			Commits:    nil,
 		}
 		prop.tickers[i] = make(chan int, n*n)
 		prop.outs[i] = make(chan *utils.BlockShare, n)
 		prop.thresholdCrypto[i] = &thresholdCrypto{
-			keyShare: keyShares[i],
-			keyMeta:  keyMeta,
+			KeyShare: keyShares[i],
+			KeyMeta:  keyMeta,
 		}
 		prop.ps[i] = NewProposeProtocol(n, i, ts, proposer, round, prop.tickers[i], vote, prop.thresholdCrypto[i], multicast, receive)
 	}
