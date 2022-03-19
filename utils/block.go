@@ -14,6 +14,7 @@ type Block struct {
 
 type PreBlock struct {
 	Vec []*PreBlockMessage
+	Size string
 }
 
 type PreBlockMessage struct {

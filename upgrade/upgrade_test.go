@@ -139,12 +139,12 @@ func TestSimpleTest(t *testing.T) {
 func setupSimulation(cfg *testConfig) []*ABC {
 	// Create common coin
 	req := make(chan *utils.CoinRequest, 9999)
-	coin := aba.NewCommonCoin(cfg.n, cfg.keyMeta, req)
+	coin := aba.NewLocalCommonCoin(cfg.n, cfg.keyMeta, req)
 	go coin.Run()
 
 	// Create communication channels and handlers
 	nodeChans := make(map[int]chan *utils.HandlerMessage)
-	var handlers []*utils.Handler
+	var handlers []*utils.LocalHandler
 	for i := 0; i < cfg.n; i++ {
 		nodeChans[i] = make(chan *utils.HandlerMessage, 9999)
 	}
@@ -156,7 +156,7 @@ func setupSimulation(cfg *testConfig) []*ABC {
 
 	abcs := make([]*ABC, cfg.n)
 	for i := 0; i < cfg.n; i++ {
-		handlers = append(handlers, utils.NewHandler(nodeChans, coin.RequestChan, i, cfg.n, cfg.kappa))
+		handlers = append(handlers, utils.NewLocalHandler(nodeChans, coin.RequestChan, i, cfg.n, cfg.kappa))
 		tcs := &tcs{
 			keyMeta:       cfg.keyMeta,
 			keyMetaC:      cfg.keyMetaC,
@@ -185,7 +185,7 @@ func setupSimulation(cfg *testConfig) []*ABC {
 			committee:  cfg.committee,
 			txSize:     cfg.txSize,
 			leaderFunc: leaderFunc,
-			handler:    handlers[i],
+			handlerFuncs:    handlers[i].Funcs,
 		}
 		abcs[i] = NewABC(c, tcs)
 	}

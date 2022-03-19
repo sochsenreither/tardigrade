@@ -38,7 +38,7 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta int) 
 		panic(err)
 	}
 
-	var handlers []*utils.Handler
+	var handlers []*utils.LocalHandler
 	for i := 0; i < n; i++ {
 		ba.nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
 	}
@@ -66,8 +66,8 @@ func newTestBlockAgreementInstanceWithSamePreBlock(n, ts, kappa int, delta int) 
 	// Set up individual block agreement protocols
 	for i := 0; i < n; i++ {
 		// Create new handler
-		handlers = append(handlers, utils.NewHandler(ba.nodeChans, nil, i, n, kappa))
-		ba.bas[i] = NewBlockAgreement(0, n, i, ts, ba.kappa, blockShare, keyShares[i], keyMeta, leader, ba.delta, handlers[i])
+		handlers = append(handlers, utils.NewLocalHandler(ba.nodeChans, nil, i, n, kappa))
+		ba.bas[i] = NewBlockAgreement(0, n, i, ts, ba.kappa, blockShare, keyShares[i], keyMeta, leader, ba.delta, handlers[i].Funcs)
 	}
 
 	return ba
@@ -93,7 +93,7 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 		panic(err)
 	}
 
-	var handlers []*utils.Handler
+	var handlers []*utils.LocalHandler
 	for i := 0; i < n; i++ {
 		ba.nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
 	}
@@ -136,8 +136,8 @@ func newTestBlockAgreementInstanceWithDifferentPreBlocks(n, ts, kappa int, delta
 	// Set up individual block agreement protocols
 	for i := 0; i < n; i++ {
 		// Create new handler
-		handlers = append(handlers, utils.NewHandler(ba.nodeChans, nil, i, n, kappa))
-		ba.bas[i] = NewBlockAgreement(0, n, i, ts, ba.kappa, nil, keyShares[i], keyMeta, leader, ba.delta, handlers[i])
+		handlers = append(handlers, utils.NewLocalHandler(ba.nodeChans, nil, i, n, kappa))
+		ba.bas[i] = NewBlockAgreement(0, n, i, ts, ba.kappa, nil, keyShares[i], keyMeta, leader, ba.delta, handlers[i].Funcs)
 		ba.bas[i].SetInput(blockShares[i])
 	}
 

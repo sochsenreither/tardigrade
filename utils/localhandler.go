@@ -5,52 +5,13 @@ import (
 	"sync"
 )
 
-// TODO: ACS hängt ständig bug?
-
-type Handler struct {
-	nodes map[int]chan *HandlerMessage
-	Funcs *HandlerFuncs
-	Chans *HandlerChans
+type LocalHandler struct {
+	nodes    map[int]chan *HandlerMessage
+	Funcs    *HandlerFuncs
+	Chans    *HandlerChans
 }
 
-type HandlerFuncs struct {
-	RBCmulticast func(msg *Message, UROUND, instance int)
-	RBCreceive   func(UROUND, instance int) *Message
-	ABAmulticast func(msg *Message, UROUND, round, instance int)
-	ABAreceive   func(UROUND, round, instance int) *Message
-	BLAmulticast func(msg *Message, UROUND, round, receiver int)
-	BLAreceive   func(UROUND, round int) *Message
-	ACSmulticast func(msg *Message, UROUND int)
-	ACSreceive   func(UROUND int) *Message
-	ABCmulticast func(msg *Message, UROUND int, receiver int)
-	ABCreceive   func(UROUND int) *Message
-	CoinCall     func(msg *CoinRequest) byte
-}
-
-type HandlerMessage struct {
-	UROUND   int
-	Round    int
-	Instance int
-	Origin   Origin
-	Payload  *Message
-}
-
-type HandlerChans struct {
-	rbcChans map[int][]chan *Message         // UROUND -> instance - > channel
-	abaChans map[int]map[int][]chan *Message // UROUND -> round -> instance -> channel
-	acsChans map[int]chan *Message           // UROUND -> channel
-	blaChans map[int]map[int]chan *Message   // UROUND -> round -> channel
-	abcChans map[int]chan *Message           // UROUND -> channel
-	round    map[int]bool                    // Maximum round for which the channels are set
-	rbcLock  sync.RWMutex
-	abaLock  sync.RWMutex
-	acsLock  sync.RWMutex
-	blaLock  sync.RWMutex
-	abcLock  sync.RWMutex
-	rLock    sync.RWMutex
-}
-
-func NewHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, n, kappa int) *Handler {
+func NewLocalHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, n, kappa int) *LocalHandler {
 	// Create local channels. The handler will forward incoming messages to the correct local
 	// channels.
 	rbcChans := make(map[int][]chan *Message)         // UROUND -> instance
@@ -88,6 +49,7 @@ func NewHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, 
 			Origin:   origin,
 			Payload:  msg,
 		}
+
 		// log.Printf("Node %d UROUND %d %d -> %T", msg.Sender, m.UROUND, m.origin, msg.Payload)
 		if p[3] != -1 {
 			// Send only to one node
@@ -210,11 +172,12 @@ func NewHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, 
 		return receive(ABC, UROUND)
 	}
 
-	coinCall := func(msg *CoinRequest) byte {
+	coinCall := func(msg *CoinRequest) (byte, error) {
 		answer := make(chan byte, 100)
-		msg.Answer = answer
+		msg.AnswerLocal = answer
 		coin <- msg
-		return <-answer
+		val := <-answer
+		return val, nil
 	}
 
 	// Receiver that assigns incoming messages to the correct channels
@@ -241,7 +204,7 @@ func NewHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, 
 					handlerChans.abaLock.Lock()
 					abaChans[msg.UROUND][msg.Round] = make([]chan *Message, n)
 					for i := range abaChans[msg.UROUND][msg.Round] {
-						abaChans[msg.UROUND][msg.Round][i] = make(chan *Message, 99999)
+						abaChans[msg.UROUND][msg.Round][i] = make(chan *Message, 999)
 					}
 					handlerChans.abaLock.Unlock()
 				} else {
@@ -286,7 +249,6 @@ func NewHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, 
 			}
 		}
 	}
-	go receiver()
 
 	handlerFuncs := &HandlerFuncs{
 		RBCmulticast: rbcMulticast,
@@ -300,82 +262,14 @@ func NewHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, 
 		ABCmulticast: abcMulticast,
 		ABCreceive:   abcReceive,
 		CoinCall:     coinCall,
+		Receiver:     receiver,
 	}
 
-	handler := &Handler{
+	handler := &LocalHandler{
 		nodes: nodes,
 		Funcs: handlerFuncs,
 		Chans: handlerChans,
 	}
 
 	return handler
-}
-
-// Creates channels for UROUND if there aren't any already.
-func (h *HandlerChans) updateRound(UROUND, n, kappa int) {
-	updatedRound := 1
-	h.rLock.Lock()
-	defer h.rLock.Unlock()
-	if h.round[UROUND] {
-		return
-	}
-	h.round[UROUND] = true
-
-	// Update rbc
-	h.rbcLock.Lock()
-	for i := UROUND; i < UROUND+updatedRound; i++ {
-		h.rbcChans[i] = make([]chan *Message, n)
-		for j := 0; j < n; j++ {
-			h.rbcChans[i][j] = make(chan *Message, 999)
-		}
-	}
-	h.rbcLock.Unlock()
-
-	// Update aba. aba runs in expected constant round times. 10 rounds should be enough, but it is
-	// possible that it runs forever. Hence we need to check in the receiver functions if the
-	// current round exists.
-	h.abaLock.Lock()
-	for i := UROUND; i < UROUND+updatedRound; i++ {
-		if h.abaChans[i] != nil {
-			log.Printf("h.abaChans[i] != nil")
-		}
-		h.abaChans[i] = make(map[int][]chan *Message)
-		for j := 0; j < 10; j++ {
-			if h.abaChans[i][j] != nil {
-				log.Printf("h.abaChans[i][j] != nil")
-			}
-			h.abaChans[i][j] = make([]chan *Message, n)
-			for k := range h.abaChans[i][j] {
-				if h.abaChans[i][j][k] != nil {
-					log.Printf("h.abaChans[i][j][k] != nil")
-				}
-				h.abaChans[i][j][k] = make(chan *Message, 999)
-			}
-		}
-	}
-	h.abaLock.Unlock()
-
-	// Update acs
-	h.acsLock.Lock()
-	for i := UROUND; i < UROUND+updatedRound; i++ {
-		h.acsChans[i] = make(chan *Message, 999)
-	}
-	h.acsLock.Unlock()
-
-	// Update bla. bla will run for kappa rounds.
-	h.blaLock.Lock()
-	for i := UROUND; i < UROUND+updatedRound; i++ {
-		h.blaChans[i] = make(map[int]chan *Message)
-		for j := 0; j < kappa; j++ {
-			h.blaChans[i][j] = make(chan *Message, 999)
-		}
-	}
-	h.blaLock.Unlock()
-
-	// Update abc
-	h.abcLock.Lock()
-	for i := UROUND; i < UROUND+updatedRound; i++ {
-		h.abcChans[i] = make(chan *Message, 999)
-	}
-	h.abcLock.Unlock()
 }

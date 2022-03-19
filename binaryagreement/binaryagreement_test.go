@@ -19,7 +19,7 @@ func TestABADifferentValues(t *testing.T) {
 
 	abas := make(map[int][]*BinaryAgreement)
 	nodeChans := make(map[int]chan *utils.HandlerMessage)
-	var handlers []*utils.Handler
+	var handlers []*utils.LocalHandler
 	for i := 0; i < n; i++ {
 		nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
 	}
@@ -33,10 +33,10 @@ func TestABADifferentValues(t *testing.T) {
 		}
 
 		// Create new handler
-		handlers = append(handlers, utils.NewHandler(nodeChans, coin.RequestChan, i, n, kappa))
+		handlers = append(handlers, utils.NewLocalHandler(nodeChans, coin.RequestChan, i, n, kappa))
 
 		for j := 0; j < n; j++ {
-			abas[i] = append(abas[i], NewBinaryAgreement(0, n, i, ta, i%2, j, thresholdCrypto, handlers[i]))
+			abas[i] = append(abas[i], NewBinaryAgreement(0, n, i, ta, i%2, j, thresholdCrypto, handlers[i].Funcs))
 		}
 	}
 	start := time.Now()

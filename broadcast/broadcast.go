@@ -63,7 +63,7 @@ type ReliableBroadcastConfig struct {
 	Instance int
 }
 
-func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, sig *Signature, handler *utils.Handler) *ReliableBroadcast {
+func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, sig *Signature, handlerFuncs *utils.HandlerFuncs) *ReliableBroadcast {
 	out := make(chan *utils.BlockShare, 100)
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
 	rbc := &ReliableBroadcast{
@@ -79,10 +79,10 @@ func NewReliableBroadcast(cfg *ReliableBroadcastConfig, committee map[int]bool, 
 		Sig:       sig,
 	}
 	rbc.multicast = func(msg *utils.Message) {
-		handler.Funcs.RBCmulticast(msg, rbc.UROUND, cfg.Instance)
+		handlerFuncs.RBCmulticast(msg, rbc.UROUND, cfg.Instance)
 	}
 	rbc.receive = func() *utils.Message {
-		return handler.Funcs.RBCreceive(rbc.UROUND, cfg.Instance)
+		return handlerFuncs.RBCreceive(rbc.UROUND, cfg.Instance)
 	}
 	return rbc
 }

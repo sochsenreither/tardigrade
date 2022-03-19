@@ -18,7 +18,7 @@ type proposeProtocol struct {
 	round           int                                     // Round number
 	time            int                                     // Current time
 	tickerChan      chan int                                // Ticker
-	vote            *vote                                   // Vote of the current node
+	vote            *Vote                                   // Vote of the current node
 	out             chan *utils.BlockShare                  // Output channel
 	thresholdCrypto *thresholdCrypto                        // Struct containing the secret key and key meta
 	multicast       func(msg *utils.Message, params ...int) // Function for multicasting messages
@@ -26,7 +26,7 @@ type proposeProtocol struct {
 }
 
 // Returns a new propose protocol instance
-func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, multicastFunc func(msg *utils.Message, round int, receiver ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *proposeProtocol {
+func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vote *Vote, thresthresholdCrypto *thresholdCrypto, multicastFunc func(msg *utils.Message, round int, receiver ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *proposeProtocol {
 	out := make(chan *utils.BlockShare, n)
 	p := &proposeProtocol{
 		n:               n,
@@ -55,7 +55,7 @@ func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vo
 
 func (p proposeProtocol) run() {
 	// Keep track of received votes
-	votes := make(map[int]*voteMessage)
+	votes := make(map[int]*VoteMessage)
 	// At time 0:
 	// All parties send their votes to the proposer.
 	p.sendVotes()
@@ -68,7 +68,8 @@ func (p proposeProtocol) run() {
 	for {
 		p.time = <-p.tickerChan
 		if p.time == 2 {
-			// All parties receive propose messages from the proposer. If they are valid they multicast them, otherwise output bottom.
+			// All parties receive propose messages from the proposer. If they are valid multicast
+			// them, otherwise output bottom.
 			p.handleProposals()
 			return
 		}
@@ -96,14 +97,14 @@ func (p *proposeProtocol) sendVotes() {
 }
 
 // Save received votes in map votes.
-func (p *proposeProtocol) handleVotes(votes map[int]*voteMessage) {
+func (p *proposeProtocol) handleVotes(votes map[int]*VoteMessage) {
 	for {
 		select {
 		case <-p.tickerChan:
 			return
 		case voteMes := <-p.receive():
 			switch v := voteMes.Payload.(type) {
-			case *voteMessage:
+			case *VoteMessage:
 				// If the signature is invalid or the pre-block is invalid discard the message
 				if p.verifyVoteMessage(v) && p.isValidBlockShare(v.Vote.BlockShare) {
 					// log.Println("--P--", "Proposer received valid vote from", voteMes.Sender)
@@ -121,7 +122,7 @@ func (p *proposeProtocol) handleVotes(votes map[int]*voteMessage) {
 }
 
 // Proposer finds maxVote and multicasts it.
-func (p *proposeProtocol) propose(votes map[int]*voteMessage) {
+func (p *proposeProtocol) propose(votes map[int]*VoteMessage) {
 	if len(votes) >= p.t+1 {
 		// log.Printf("Proposer received %d votes, needed %d", len(votes), p.t+1)
 		// Get maxVote
@@ -140,7 +141,7 @@ func (p *proposeProtocol) propose(votes map[int]*voteMessage) {
 		}
 
 		// Multicast propose to every node.
-		// log.Println("--P--", "Proposer is sending maxVote to nodes")
+		//log.Println("--P--", "Proposer is sending maxVote to nodes")
 		p.multicast(message)
 	} else {
 		// log.Printf("Proposer didn't receive enough votes, received %d, needed %d", len(votes), p.t+1)
@@ -149,15 +150,20 @@ func (p *proposeProtocol) propose(votes map[int]*voteMessage) {
 
 // If received propose message is valid multicast it and listen for other forwarded proposals.
 func (p *proposeProtocol) handleProposals() {
-	var proposals []*proposeMessage
-	var leaderProposal *proposeMessage
+	var proposals []*ProposeMessage
+	var leaderProposal *ProposeMessage
 	received := false
 	for {
 		select {
 		case msg := <-p.receive():
 			switch proposal := msg.Payload.(type) {
-			case *proposeMessage:
+			case *ProposeMessage:
 				if proposal.Sender == p.proposerId {
+					// TODO: This happens only when using tcp. Why?
+					if proposal.Sig == nil {
+						continue
+					}
+					//log.Println("Node", p.nodeId,"got prop from",msg.Sender, proposal)
 					// Received proposal is from the proposer
 					// If the current node already received a message from the proposer ignore the next one (which will be a multicast forward)
 					if !received {
@@ -211,12 +217,12 @@ func (p *proposeProtocol) handleProposals() {
 }
 
 // Checks if two proposals are equal
-func proposalsAreEqual(p1, p2 *proposeMessage) bool {
+func proposalsAreEqual(p1, p2 *ProposeMessage) bool {
 	return p1.Hash() == p2.Hash()
 }
 
 // Finds vote (r*, B*, C*) such that r* >= round number of all votes in V (breaking ties by lowest party index).
-func findMaxVote(votes map[int]*voteMessage) (maxVote *vote) {
+func findMaxVote(votes map[int]*VoteMessage) (maxVote *Vote) {
 	var index int
 	for i, v := range votes {
 		if maxVote == nil || v.Vote.Round > maxVote.Round || (v.Vote.Round == maxVote.Round && i < index) {
@@ -232,7 +238,13 @@ func findMaxVote(votes map[int]*voteMessage) (maxVote *vote) {
 // 3. there is a round r vote for B in V,
 // 4. |V| contains at least t+1 votes,
 // 5. r is >= to the round number of all votes in V.
-func (p *proposeProtocol) isValidProposal(proposal *proposeMessage) bool {
+func (p *proposeProtocol) isValidProposal(proposal *ProposeMessage) bool {
+	if proposal.Vote == nil {
+		panic("Prop vote nil")
+	}
+	if proposal.Sig == nil {
+		panic("Prop sig nil")
+	}
 	// 1:
 	// Check signature of propose message
 	if !p.verifyProposeMessage(proposal) {
@@ -263,7 +275,7 @@ func (p *proposeProtocol) isValidProposal(proposal *proposeMessage) bool {
 		}
 		// TODO: check signature?
 		for _, c := range proposal.Vote.Commits {
-			if c.round > proposal.Vote.Round {
+			if c.Round > proposal.Vote.Round {
 				return false
 			}
 		}
@@ -308,9 +320,9 @@ func (p *proposeProtocol) isValidBlockShare(bs *utils.BlockShare) bool {
 }
 
 // Returns a new signed voteMessage
-func (p *proposeProtocol) newSignedVoteMessage() (*voteMessage, error) {
+func (p *proposeProtocol) newSignedVoteMessage() (*VoteMessage, error) {
 	// Create a new voteMessage
-	voteMes := &voteMessage{
+	voteMes := &VoteMessage{
 		Sender: p.nodeId,
 		Sig:    nil,
 		Vote:   p.vote,
@@ -336,9 +348,9 @@ func (p *proposeProtocol) newSignedVoteMessage() (*voteMessage, error) {
 }
 
 // Returns a new signed proposeMessage
-func (p *proposeProtocol) newSignedProposeMessage(vote *vote, votes map[int]*voteMessage) (*proposeMessage, error) {
+func (p *proposeProtocol) newSignedProposeMessage(vote *Vote, votes map[int]*VoteMessage) (*ProposeMessage, error) {
 	// Create new proposeMessage
-	proposeMes := &proposeMessage{
+	proposeMes := &ProposeMessage{
 		Sender:       p.nodeId,
 		Vote:         vote,
 		VoteMessages: votes,
@@ -365,7 +377,7 @@ func (p *proposeProtocol) newSignedProposeMessage(vote *vote, votes map[int]*vot
 }
 
 // Verifys a given voteMessage
-func (p *proposeProtocol) verifyVoteMessage(vm *voteMessage) bool {
+func (p *proposeProtocol) verifyVoteMessage(vm *VoteMessage) bool {
 	hash := vm.HashWithoutSig()
 	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
@@ -380,7 +392,7 @@ func (p *proposeProtocol) verifyVoteMessage(vm *voteMessage) bool {
 }
 
 // Verifys a given proposeMessage
-func (p *proposeProtocol) verifyProposeMessage(pm *proposeMessage) bool {
+func (p *proposeProtocol) verifyProposeMessage(pm *ProposeMessage) bool {
 	hash := pm.HashWithoutSig()
 	hashPadded, err := tcrsa.PrepareDocumentHash(p.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
@@ -400,6 +412,6 @@ func (p *proposeProtocol) GetValue() *utils.BlockShare {
 }
 
 // SetInput sets the input
-func (p *proposeProtocol) SetInput(vote *vote) {
+func (p *proposeProtocol) SetInput(vote *Vote) {
 	p.vote = vote
 }

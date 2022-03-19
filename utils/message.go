@@ -7,13 +7,24 @@ type Message struct {
 	Payload interface{}
 }
 
-type CoinRequest struct {
-	Sender   int
+type HandlerMessage struct {
 	UROUND   int
 	Round    int
-	Sig      *tcrsa.SigShare
-	Answer   chan byte
 	Instance int
+	Origin   Origin
+	Payload  *Message
+}
+
+type CoinRequest struct {
+	Sender      int
+	UROUND      int
+	Round       int
+	Sig         *tcrsa.SigShare
+	AnswerLocal chan byte
+	Instance    int
+}
+
+type CoinAnswer struct {
 }
 
 type Origin int
@@ -24,4 +35,5 @@ const (
 	RBC
 	ACS
 	ABC
+	COIN
 )

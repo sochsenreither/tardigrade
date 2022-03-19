@@ -33,12 +33,12 @@ func TestACSSameValue(t *testing.T) {
 	}
 
 	nodeChans := make(map[int]chan *utils.HandlerMessage)
-	var handlers []*utils.Handler
+	var handlers []*utils.LocalHandler
 	for i := 0; i < n; i++ {
 		nodeChans[i] = make(chan *utils.HandlerMessage, 9999)
 	}
 	for i := 0; i < n; i++ {
-		handlers = append(handlers, utils.NewHandler(nodeChans, coin.RequestChan, i, n, kappa))
+		handlers = append(handlers, utils.NewLocalHandler(nodeChans, coin.RequestChan, i, n, kappa))
 	}
 
 	abas := setupAba(n, ta, keyShares, keyMeta, coin, handlers)
@@ -64,7 +64,7 @@ func TestACSSameValue(t *testing.T) {
 			Epsilon: 0,
 			UROUND:  0,
 		}
-		acs[i] = NewACS(cfg, committee, blockShares[i], rbcs[i], abas[i], tc, handlers[i])
+		acs[i] = NewACS(cfg, committee, blockShares[i], rbcs[i], abas[i], tc, handlers[i].Funcs)
 	}
 
 	start := time.Now()
@@ -109,12 +109,12 @@ func TestACSDifferentValues(t *testing.T) {
 	}
 
 	nodeChans := make(map[int]chan *utils.HandlerMessage)
-	var handlers []*utils.Handler
+	var handlers []*utils.LocalHandler
 	for i := 0; i < n; i++ {
 		nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
 	}
 	for i := 0; i < n; i++ {
-		handlers = append(handlers, utils.NewHandler(nodeChans, coin.RequestChan, i, n, kappa))
+		handlers = append(handlers, utils.NewLocalHandler(nodeChans, coin.RequestChan, i, n, kappa))
 	}
 
 	abas := setupAba(n, ta, keyShares, keyMeta, coin, handlers)
@@ -140,7 +140,7 @@ func TestACSDifferentValues(t *testing.T) {
 			Epsilon: 0,
 			UROUND:  0,
 		}
-		acs[i] = NewACS(cfg, committee, blockShares[i], rbcs[i], abas[i], tc, handlers[i])
+		acs[i] = NewACS(cfg, committee, blockShares[i], rbcs[i], abas[i], tc, handlers[i].Funcs)
 	}
 
 	start := time.Now()
@@ -168,7 +168,7 @@ func TestACSDifferentValues(t *testing.T) {
 	}
 }
 
-func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, handlers []*utils.Handler) map[int][]*aba.BinaryAgreement {
+func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, handlers []*utils.LocalHandler) map[int][]*aba.BinaryAgreement {
 	abas := make(map[int][]*aba.BinaryAgreement)
 
 	for i := 0; i < n; i++ {
@@ -178,14 +178,14 @@ func setupAba(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 			KeyMeta:  keyMeta,
 		}
 		for j := 0; j < n; j++ {
-			abas[i] = append(abas[i], aba.NewBinaryAgreement(0, n, i, ta, 0, j, thresholdCrypto, handlers[i]))
+			abas[i] = append(abas[i], aba.NewBinaryAgreement(0, n, i, ta, 0, j, thresholdCrypto, handlers[i].Funcs))
 		}
 	}
 
 	return abas
 }
 
-func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, inputs []*utils.BlockShare, committee map[int]bool, handlers []*utils.Handler) map[int][]*rbc.ReliableBroadcast {
+func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, coin *aba.CommonCoin, inputs []*utils.BlockShare, committee map[int]bool, handlers []*utils.LocalHandler) map[int][]*rbc.ReliableBroadcast {
 	broadcasts := make(map[int][]*rbc.ReliableBroadcast)
 
 	for i := 0; i < n-ta; i++ {
@@ -208,7 +208,7 @@ func setupRbc(n, ta int, keyShares tcrsa.KeyShareList, keyMeta *tcrsa.KeyMeta, c
 				Instance: j,
 				UROUND:   0,
 			}
-			broadcasts[i] = append(broadcasts[i], rbc.NewReliableBroadcast(config, committee, signature, handlers[i]))
+			broadcasts[i] = append(broadcasts[i], rbc.NewReliableBroadcast(config, committee, signature, handlers[i].Funcs))
 			if i == j {
 				broadcasts[i][j].SetValue(inputs[j])
 			}
@@ -229,7 +229,7 @@ func setupKeys(n int, committee map[int]bool) (tcrsa.KeyShareList, *tcrsa.KeyMet
 		panic(err)
 	}
 	requestChannel := make(chan *utils.CoinRequest, 99999)
-	commonCoin := aba.NewCommonCoin(n, keyMeta, requestChannel)
+	commonCoin := aba.NewLocalCommonCoin(n, keyMeta, requestChannel)
 	go commonCoin.Run()
 
 	return keyShares, keyMeta, commonCoin, keySharesC, keyMetaC

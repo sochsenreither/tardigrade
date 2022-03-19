@@ -12,21 +12,20 @@ import (
 	"github.com/sochsenreither/upgrade/utils"
 )
 
-
 type BinaryAgreement struct {
 	UROUND          int
-	n               int                               // Number of nodes
-	nodeId          int                               // Id of node
-	t               int                               // Number of maximum faulty nodes
-	value           int                               // Initial input
-	round           int                               // Current round of aba, not the round of the top protocol
-	instance        int                               // Id of the current instance
-	coinCall        func(msg *utils.CoinRequest) byte // Common coin for randomness
-	thresholdCrypto *ThresholdCrypto                  // Secret key and key meta for signing
-	multicast       func(msg *utils.Message)          // Function for multicasting
-	receive         func() *utils.Message             // Blocking function for receiving messages
-	out             chan int                          // Output channel
-	sync.Mutex                                        // Lock
+	n               int                                        // Number of nodes
+	nodeId          int                                        // Id of node
+	t               int                                        // Number of maximum faulty nodes
+	value           int                                        // Initial input
+	round           int                                        // Current round of aba, not the round of the top protocol
+	instance        int                                        // Id of the current instance
+	coinCall        func(msg *utils.CoinRequest) (byte, error) // Common coin for randomness
+	thresholdCrypto *ThresholdCrypto                           // Secret key and key meta for signing
+	multicast       func(msg *utils.Message)                   // Function for multicasting
+	receive         func() *utils.Message                      // Blocking function for receiving messages
+	out             chan int                                   // Output channel
+	sync.Mutex                                                 // Lock
 }
 
 type AbaMessage struct {
@@ -41,7 +40,7 @@ type ThresholdCrypto struct {
 	KeyMeta  *tcrsa.KeyMeta
 }
 
-func NewBinaryAgreement(UROUND, n, nodeId, t, value, instance int, thresholdCrypto *ThresholdCrypto, handler *utils.Handler) *BinaryAgreement {
+func NewBinaryAgreement(UROUND, n, nodeId, t, value, instance int, thresholdCrypto *ThresholdCrypto, handlerFuncs *utils.HandlerFuncs) *BinaryAgreement {
 	out := make(chan int, 100)
 	aba := &BinaryAgreement{
 		UROUND:          UROUND,
@@ -51,7 +50,7 @@ func NewBinaryAgreement(UROUND, n, nodeId, t, value, instance int, thresholdCryp
 		value:           value,
 		round:           0,
 		instance:        instance,
-		coinCall:        handler.Funcs.CoinCall,
+		coinCall:        handlerFuncs.CoinCall,
 		thresholdCrypto: thresholdCrypto,
 		out:             out,
 	}
@@ -60,13 +59,13 @@ func NewBinaryAgreement(UROUND, n, nodeId, t, value, instance int, thresholdCryp
 		aba.Lock()
 		r := aba.round
 		aba.Unlock()
-		handler.Funcs.ABAmulticast(msg, aba.UROUND, r, aba.instance)
+		handlerFuncs.ABAmulticast(msg, aba.UROUND, r, aba.instance)
 	}
 	aba.receive = func() *utils.Message {
 		aba.Lock()
 		r := aba.round
 		aba.Unlock()
-		return handler.Funcs.ABAreceive(aba.UROUND, r, aba.instance)
+		return handlerFuncs.ABAreceive(aba.UROUND, r, aba.instance)
 	}
 
 	return aba
@@ -280,14 +279,18 @@ func (aba *BinaryAgreement) callCommonCoin() int {
 
 	// log.Println("Round", aba.round, "instance", aba.instance, "-", aba.nodeId, "sending request to coin")
 	msg := &utils.CoinRequest{
-		Sender:   aba.nodeId,
-		UROUND:   aba.UROUND,
-		Round:    aba.round,
-		Sig:      sig,
-		Answer:   nil,
-		Instance: aba.instance,
+		Sender:      aba.nodeId,
+		UROUND:      aba.UROUND,
+		Round:       aba.round,
+		Sig:         sig,
+		AnswerLocal: nil,
+		Instance:    aba.instance,
 	}
-	return int(aba.coinCall(msg))
+	val, err := aba.coinCall(msg)
+	if err != nil {
+		// log.Printf("Node %d failed to call coin. UROUND %d, round %d, instance %d", msg.Sender, msg.UROUND, msg.Round, msg.Instance)
+	}
+	return int(val)
 }
 
 // GetValue returns the output of the binary agreement (blocking)

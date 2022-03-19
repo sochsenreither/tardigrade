@@ -1,8 +1,7 @@
 package blockagreement
 
 import (
-
-	// "log"
+	//"log"
 	"time"
 
 	"github.com/niclabs/tcrsa"
@@ -17,7 +16,7 @@ type BlockAgreement struct {
 	round                   int                    // Round number of BA, not the top protocol
 	kappa                   int                    // Security parameter
 	blockShare              *utils.BlockShare      // Input pre-block of the node
-	commits                 []*commitMessage       // List of commit messages received from GC
+	commits                 []*CommitMessage       // List of commit messages received from GC
 	thresholdCrypto         *thresholdCrypto       // Struct containing the secret key and key meta
 	out                     chan *utils.BlockShare // Output channel
 	gradedConsensusProtocol *gradedConsensus       // Underlying protocol
@@ -26,19 +25,19 @@ type BlockAgreement struct {
 	ticker                  func()                 // Ticker function that ticks every delta milliseconds
 }
 
-func NewBlockAgreement(UROUND, n, nodeId, t, kappa int, blockShare *utils.BlockShare, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta, leaderFunc func(round, n int) int, delta int, handler *utils.Handler) *BlockAgreement {
+func NewBlockAgreement(UROUND, n, nodeId, t, kappa int, blockShare *utils.BlockShare, keyShare *tcrsa.KeyShare, keyMeta *tcrsa.KeyMeta, leaderFunc func(round, n int) int, delta int, handlerFuncs *utils.HandlerFuncs) *BlockAgreement {
 	multicast := func(msg *utils.Message, round int, receiver ...int) {
 		if len(receiver) == 1 {
-			handler.Funcs.BLAmulticast(msg, UROUND, round, receiver[0])
+			handlerFuncs.BLAmulticast(msg, UROUND, round, receiver[0])
 		} else {
-			handler.Funcs.BLAmulticast(msg, UROUND, round, -1)
+			handlerFuncs.BLAmulticast(msg, UROUND, round, -1)
 		}
 	}
 	c := make(chan *utils.Message, 99999)
 	receive := func(id, round int) chan *utils.Message {
 		go func() {
 			for {
-				val := handler.Funcs.BLAreceive(UROUND, round)
+				val := handlerFuncs.BLAreceive(UROUND, round)
 				c <- val
 			}
 		}()
@@ -64,8 +63,8 @@ func NewBlockAgreement(UROUND, n, nodeId, t, kappa int, blockShare *utils.BlockS
 			}
 		}
 	}
-	out := make(chan *utils.BlockShare, n*9999)
-	vote := &vote{
+	out := make(chan *utils.BlockShare, n*999)
+	vote := &Vote{
 		Round:      0,
 		BlockShare: blockShare,
 		Commits:    nil,
@@ -101,13 +100,13 @@ func (ba *BlockAgreement) Run() {
 		ba.gradedConsensusProtocol.run()
 		// TODO: may be blocking forever?
 		res := ba.gradedConsensusProtocol.GetValue()
-		if res.grade > 0 {
-			ba.blockShare = res.blockShare
-			ba.commits = res.commits
+		if res.Grade > 0 {
+			ba.blockShare = res.BlockShare
+			ba.commits = res.Commits
 		}
-		if res.grade == 2 {
+		if res.Grade == 2 {
 			// log.Println(ba.nodeId, "got grade 2, outputting block share")
-			ba.out <- res.blockShare
+			ba.out <- res.BlockShare
 		}
 
 		// At time 5(r+1):
@@ -149,7 +148,7 @@ func (ba *BlockAgreement) GetValue() *utils.BlockShare {
 
 // SetInput sets the input
 func (ba *BlockAgreement) SetInput(bs *utils.BlockShare) {
-	vote := &vote{
+	vote := &Vote{
 		Round:      0,
 		BlockShare: bs,
 		Commits:    nil,

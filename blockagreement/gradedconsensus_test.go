@@ -99,7 +99,7 @@ func newTestGradedConsensusInstance(n, ts, round int) *testGradedConsensusInstan
 
 	// Set up individual graded consensus protocols
 	for i := 0; i < n; i++ {
-		vote := &vote{
+		vote := &Vote{
 			Round:    0,
 			BlockShare: blockShare,
 			Commits:  nil,
@@ -127,11 +127,11 @@ func TestGCEveryoneAgreesOnSameOutputInRoundOneWithGrade2(t *testing.T) {
 
 	for i := 0; i < testGC.n-testGC.ts; i++ {
 		grade := testGC.gcs[i].GetValue()
-		if grade.grade != 2 {
-			t.Errorf("Node %d got grade %d, expected %d", i, grade.grade, 2)
+		if grade.Grade != 2 {
+			t.Errorf("Node %d got grade %d, expected %d", i, grade.Grade, 2)
 		}
-		if len(grade.commits) < testGC.n-testGC.ts {
-			t.Errorf("Set of commits is too small, got %d, expected %d", len(grade.commits), 2)
+		if len(grade.Commits) < testGC.n-testGC.ts {
+			t.Errorf("Set of commits is too small, got %d, expected %d", len(grade.Commits), 2)
 		}
 	}
 	fmt.Println("Execution time:", time.Since(start))

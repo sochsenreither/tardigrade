@@ -14,9 +14,9 @@ type gradedConsensus struct {
 	t               int                                     // Number of maximum faulty nodes
 	proposerId      int                                     // Proposer id
 	round           int                                     // Round number
-	vote            *vote                                   // Input vote of the node
+	vote            *Vote                                   // Input vote of the node
 	thresholdCrypto *thresholdCrypto                        // Struct containing the secret key and key meta
-	out             chan *gradedConsensusResult             // Output channel
+	out             chan *GradedConsensusResult             // Output channel
 	proposeProtocol *proposeProtocol                        // Underlying sub-protocol
 	multicast       func(msg *utils.Message, params ...int) // Function for multicasting messages
 	receive         func() chan *utils.Message              // Blocking function for receiving messages
@@ -24,8 +24,8 @@ type gradedConsensus struct {
 }
 
 // Returns a new graded consensus protocol instance
-func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote, thresthresholdCrypto *thresholdCrypto, leaderFunc func(round, n int) int, multicastFunc func(msg *utils.Message, round int, receiver ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *gradedConsensus {
-	out := make(chan *gradedConsensusResult, 100)
+func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *Vote, thresthresholdCrypto *thresholdCrypto, leaderFunc func(round, n int) int, multicastFunc func(msg *utils.Message, round int, receiver ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *gradedConsensus {
+	out := make(chan *GradedConsensusResult, 100)
 	propose := NewProposeProtocol(n, nodeId, t, -1, round, tickerChan, vote, thresthresholdCrypto, multicastFunc, receiveFunc)
 
 	gc := &gradedConsensus{
@@ -58,7 +58,7 @@ func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *vote
 }
 
 func (gc *gradedConsensus) run() {
-	commits := make(map[int]*commitMessage)
+	commits := make(map[int]*CommitMessage)
 	notifySent := make(chan bool, 1)
 
 	// At time 0:
@@ -98,26 +98,26 @@ func (gc *gradedConsensus) run() {
 		case gc.proposeProtocol.time = <-gc.proposeProtocol.tickerChan:
 			// Time 5:
 			// If no notify was received output grade 0 and terminate.
-			result := &gradedConsensusResult{
-				blockShare: nil,
-				commits:    nil,
-				grade:      0,
+			result := &GradedConsensusResult{
+				BlockShare: nil,
+				Commits:    nil,
+				Grade:      0,
 			}
 			// log.Println("--GC--", gc.nodeId, "didn't receive any notify")
 			gc.out <- result
 			return
 		case message := <-gc.receive():
 			switch m := message.Payload.(type) {
-			case *notifyMessage:
-				result := &gradedConsensusResult{
-					blockShare: nil,
-					commits:    nil,
-					grade:      0,
+			case *NotifyMessage:
+				result := &GradedConsensusResult{
+					BlockShare: nil,
+					Commits:    nil,
+					Grade:      0,
 				}
 				if gc.isValidNotify(m) {
-					result.blockShare = m.blockShare
-					result.commits = m.commits
-					result.grade = 1
+					result.BlockShare = m.BlockShare
+					result.Commits = m.Commits
+					result.Grade = 1
 				}
 				// log.Println("--GC--", gc.nodeId, "received notify and terminates. Grade:", result.grade)
 				gc.out <- result
@@ -144,17 +144,17 @@ func (gc *gradedConsensus) multicastCommitMessage(bs *utils.BlockShare) {
 }
 
 // Handles incoming commit messages
-func (gc *gradedConsensus) handleCommitMessages(commits map[int]*commitMessage) {
+func (gc *gradedConsensus) handleCommitMessages(commits map[int]*CommitMessage) {
 	for {
 		select {
 		case gc.proposeProtocol.time = <-gc.proposeProtocol.tickerChan:
 			return
 		case message := <-gc.receive():
 			switch m := message.Payload.(type) {
-			case *commitMessage:
+			case *CommitMessage:
 				// Upon receiving the first valid commit message from a node add it to list of commits
-				if gc.verifyCommitMessage(m) && m.blockShare.Block.Quality() >= gc.t+1 {
-					sender := m.sender
+				if gc.verifyCommitMessage(m) && m.BlockShare.Block.Quality() >= gc.t+1 {
+					sender := m.Sender
 					// log.Println("--GC--", gc.nodeId, "received commit from", sender)
 					if commits[sender] == nil {
 						commits[sender] = m
@@ -169,7 +169,7 @@ func (gc *gradedConsensus) handleCommitMessages(commits map[int]*commitMessage) 
 // 1. The size of that subset is greater or equal to t+1
 // 2. For each commit c_j in that subset: r_j >= r
 // Check for valid signature is not necessary, since that already happened in handleCommitMessages.
-func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent chan bool) {
+func (gc *gradedConsensus) findSubset(commits map[int]*CommitMessage, notifySent chan bool) {
 	if len(commits) < gc.t+1 {
 		// There can't be a subset of size >= t+1
 		notifySent <- false
@@ -178,7 +178,7 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 
 	type helper struct {
 		blockShare     *utils.BlockShare
-		commitMessages []*commitMessage
+		commitMessages []*CommitMessage
 	}
 
 	// Create a map with the hashes of pre-blocks as key. Every honest node should commit the same
@@ -186,13 +186,13 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 	// occurences.
 	subsets := make(map[[32]byte]*helper)
 	for _, commit := range commits {
-		hash := commit.blockShare.Hash()
+		hash := commit.BlockShare.Hash()
 		if subsets[hash] == nil {
 			// Found a new pre-block
-			commitMessages := make([]*commitMessage, 0)
+			commitMessages := make([]*CommitMessage, 0)
 			commitMessages = append(commitMessages, commit)
 			subsets[hash] = &helper{
-				blockShare:     commit.blockShare,
+				blockShare:     commit.BlockShare,
 				commitMessages: commitMessages,
 			}
 		} else {
@@ -204,11 +204,11 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 	for _, subset := range subsets {
 		if len(subset.commitMessages) >= gc.t+1 {
 			// If we found that subset multicast notify, output a grade and give a signal to terminate
-			notify := &notifyMessage{
-				sender:     gc.nodeId,
-				round:      gc.round,
-				blockShare: subset.blockShare,
-				commits:    subset.commitMessages,
+			notify := &NotifyMessage{
+				Sender:     gc.nodeId,
+				Round:      gc.round,
+				BlockShare: subset.blockShare,
+				Commits:    subset.commitMessages,
 			}
 
 			message := &utils.Message{
@@ -219,10 +219,10 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 			// log.Println("--GC--", gc.nodeId, "multicasting notify and terminating. Grade: 2")
 			gc.multicast(message)
 
-			result := &gradedConsensusResult{
-				blockShare: subset.blockShare,
-				commits:    subset.commitMessages,
-				grade:      2,
+			result := &GradedConsensusResult{
+				BlockShare: subset.blockShare,
+				Commits:    subset.commitMessages,
+				Grade:      2,
 			}
 			gc.out <- result
 			notifySent <- true
@@ -241,9 +241,9 @@ func (gc *gradedConsensus) findSubset(commits map[int]*commitMessage, notifySent
 // 2.2 C contains commit messages from at least t+1 distinct nodes.
 // 2.3 For every commit message the round number of that commit is greater or equal to r.
 // TODO: verify signature?
-func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
+func (gc *gradedConsensus) isValidNotify(notify *NotifyMessage) bool {
 	// 1:
-	if notify.blockShare.Block.Quality() < gc.n-gc.t {
+	if notify.BlockShare.Block.Quality() < gc.n-gc.t {
 		// log.Println("--GC--", gc.nodeId, "received a notify that doesn't contain a valid pre-block")
 		return false
 	}
@@ -251,14 +251,14 @@ func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
 	// Sets to keep track of distinct nodes and distinct pre-blocks
 	distinctNodes := make(map[int]struct{})
 	distinctPreBlocks := make(map[[32]byte]struct{})
-	for _, commit := range notify.commits {
+	for _, commit := range notify.Commits {
 		// 2.3:
-		if commit.round < gc.round {
+		if commit.Round < gc.round {
 			// log.Println("--GC--", gc.nodeId, "received a notify that contains a commit message with a roudn number smaller than the current round")
 			return false
 		}
-		distinctNodes[commit.sender] = struct{}{}
-		distinctPreBlocks[commit.blockShare.Hash()] = struct{}{}
+		distinctNodes[commit.Sender] = struct{}{}
+		distinctPreBlocks[commit.BlockShare.Hash()] = struct{}{}
 	}
 	// 2.1:
 	if len(distinctPreBlocks) > 1 {
@@ -275,13 +275,13 @@ func (gc *gradedConsensus) isValidNotify(notify *notifyMessage) bool {
 }
 
 // Returns a new signed commitMessage
-func (gc *gradedConsensus) newSignedCommitMessage(bs *utils.BlockShare) (*commitMessage, error) {
+func (gc *gradedConsensus) newSignedCommitMessage(bs *utils.BlockShare) (*CommitMessage, error) {
 	// Create a new commitMessage
-	commitMes := &commitMessage{
-		sender:     gc.nodeId,
-		round:      gc.round,
-		blockShare: bs,
-		sig:        nil,
+	commitMes := &CommitMessage{
+		Sender:     gc.nodeId,
+		Round:      gc.round,
+		BlockShare: bs,
+		Sig:        nil,
 	}
 
 	// Create a hash of the sender, round and blockshare
@@ -298,20 +298,20 @@ func (gc *gradedConsensus) newSignedCommitMessage(bs *utils.BlockShare) (*commit
 		// log.Println("--GC--", gc.nodeId, "was unable to sign commitMessage:", err)
 		return nil, err
 	}
-	commitMes.sig = sigShare
+	commitMes.Sig = sigShare
 
 	return commitMes, nil
 }
 
 // Verifys a given commitMessage
-func (gc *gradedConsensus) verifyCommitMessage(cm *commitMessage) bool {
+func (gc *gradedConsensus) verifyCommitMessage(cm *CommitMessage) bool {
 	hash := cm.HashWithoutSig()
 	hashPadded, err := tcrsa.PrepareDocumentHash(gc.thresholdCrypto.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
 	if err != nil {
 		// log.Println("--GC--", gc.nodeId, "was unanble to hash commitMessage while verifying:", err)
 		return false
 	}
-	if err = cm.sig.Verify(hashPadded, gc.thresholdCrypto.KeyMeta); err != nil {
+	if err = cm.Sig.Verify(hashPadded, gc.thresholdCrypto.KeyMeta); err != nil {
 		// log.Println("--GC--", gc.nodeId, "received invalid commitMessage signature from", cm.sender)
 		return false
 	}
@@ -319,12 +319,12 @@ func (gc *gradedConsensus) verifyCommitMessage(cm *commitMessage) bool {
 }
 
 // GetValue returns the output of the protocol (blocking)
-func (gc *gradedConsensus) GetValue() *gradedConsensusResult {
+func (gc *gradedConsensus) GetValue() *GradedConsensusResult {
 	return <-gc.out
 }
 
 // SetInput sets the input
-func (gc *gradedConsensus) SetInput(vote *vote) {
+func (gc *gradedConsensus) SetInput(vote *Vote) {
 	gc.proposeProtocol.SetInput(vote)
 	gc.vote = vote
 }

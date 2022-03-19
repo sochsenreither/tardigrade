@@ -44,7 +44,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 	kappa := 1
 	var wg sync.WaitGroup
 	nodeChans := make(map[int]chan *utils.HandlerMessage)
-	var handlers []*utils.Handler
+	var handlers []*utils.LocalHandler
 	for i := 0; i < n; i++ {
 		nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
 	}
@@ -73,7 +73,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 		}
 
 		// Create new handler
-		handlers = append(handlers, utils.NewHandler(nodeChans, nil, i, n, kappa))
+		handlers = append(handlers, utils.NewLocalHandler(nodeChans, nil, i, n, kappa))
 
 		for j := 0; j < n; j++ {
 			config := &ReliableBroadcastConfig{
@@ -85,7 +85,7 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 				SenderId: j,
 				Instance: j,
 			}
-			broadcasts[i] = append(broadcasts[i], NewReliableBroadcast(config, committee, signature, handlers[i]))
+			broadcasts[i] = append(broadcasts[i], NewReliableBroadcast(config, committee, signature, handlers[i].Funcs))
 			if i == j {
 				broadcasts[i][j].SetValue(blockShares[j])
 			}

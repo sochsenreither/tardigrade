@@ -18,24 +18,25 @@ import (
 	abc "github.com/sochsenreither/upgrade/upgrade"
 )
 
-type keys struct {
+type Keys struct {
 	KeyShares         tcrsa.KeyShareList
 	KeyMeta           *tcrsa.KeyMeta
 	KeySharesCommitte tcrsa.KeyShareList
 	KeyMetaCommittee  *tcrsa.KeyMeta
 	Pk                *tcpaillier.PubKey
 	DecryptionShares  []*tcpaillier.KeyShare
+	Proofs            []*tcrsa.SigShare
 }
 
-func Run() {
-	local(7, 0, 65, 600, 2, 8)
+func RunLocal() {
+	local(2, 0, 20, 150, 2, 8)
 }
 
 func local(n, t, delta, lambda, kappa, txSize int) {
 	bufTicker := time.NewTicker(time.Duration(lambda) * time.Millisecond) // Ticker for filling buf
 
 	// run ABCs
-	abcs := setupSimulation(n, t, delta, lambda, kappa, txSize)
+	abcs := setupLocalSimulation(n, t, delta, lambda, kappa, txSize)
 	fmt.Printf("Setup done, starting simulation...\n\n")
 	for i := 0; i < n; i++ {
 		i := i
@@ -58,8 +59,10 @@ func local(n, t, delta, lambda, kappa, txSize int) {
 				totalTxs += block.TxsCount
 			}
 			uniqueTransactions(blocks, txs, txSize)
-			fmt.Printf("------------ %d seconds ------------\n", ticks*5)
-			fmt.Printf("Total transactions: %d. Unique transactions: %d. txs/s: %d. Unique txs/s: %d\n", totalTxs, len(txs), totalTxs/(ticks*5), len(txs)/(ticks*5))
+			fmt.Printf(" -------------------- %d seconds ---------------------\n", ticks*5)
+			fmt.Printf("| Total transactions: %d, txs/s: %d\n", totalTxs, totalTxs/(ticks*5))
+			fmt.Printf("| Unique transactions: %d, Unique txs/s: %d\n", len(txs), len(txs)/(ticks*5))
+			fmt.Printf(" ----------------------------------------------------\n")
 			ticks++
 		case <-bufTicker.C:
 			for i := range abcs {
@@ -74,22 +77,10 @@ func local(n, t, delta, lambda, kappa, txSize int) {
 	// map[h(tx)] -> end-start
 }
 
-func setupSimulation(n, t, delta, lambda, kappa, txSize int) []*abc.ABC {
+func setupLocalSimulation(n, t, delta, lambda, kappa, txSize int) []*abc.ABC {
 	// Setup keys
 	start := time.Now()
 	keys := setupKeys(n, kappa)
-
-	// Setup proofs on nodeId (Dealer is node 0)
-	proofs := make([]*tcrsa.SigShare, n)
-	for i := 0; i < n; i++ {
-		hash := sha256.Sum256([]byte(strconv.Itoa(i)))
-		paddedHash, _ := tcrsa.PrepareDocumentHash(keys.KeyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
-		sig, err := keys.KeyShares[0].Sign(paddedHash, crypto.SHA256, keys.KeyMeta)
-		if err != nil {
-			panic(err)
-		}
-		proofs[i] = sig
-	}
 	fmt.Println("Key setup took", time.Since(start))
 
 	// Setup committee
@@ -101,15 +92,15 @@ func setupSimulation(n, t, delta, lambda, kappa, txSize int) []*abc.ABC {
 
 	// Create common coin
 	req := make(chan *utils.CoinRequest, 9999)
-	coin := aba.NewCommonCoin(n, keys.KeyMeta, req)
+	coin := aba.NewLocalCommonCoin(n, keys.KeyMeta, req)
 	go coin.Run()
 
 	// Setup message handler
 	nodeChans := make(map[int]chan *utils.HandlerMessage)
-	handlers := make([]*utils.Handler, n)
+	handlers := make([]*utils.LocalHandler, n)
 	for i := 0; i < n; i++ {
 		nodeChans[i] = make(chan *utils.HandlerMessage, 9999)
-		handlers[i] = utils.NewHandler(nodeChans, coin.RequestChan, i, n, kappa)
+		handlers[i] = utils.NewLocalHandler(nodeChans, coin.RequestChan, i, n, kappa)
 	}
 
 	// Setup leader func
@@ -117,28 +108,28 @@ func setupSimulation(n, t, delta, lambda, kappa, txSize int) []*abc.ABC {
 		return r % n
 	}
 
-	// Setup ABCS
+	// Setup abcs
 	abcs := make([]*abc.ABC, n)
 	for i := 0; i < n; i++ {
-		cfg := abc.NewABCConfig(n, i, t, t, kappa, delta, lambda, 0, txSize, committee, leaderFunc, handlers[i])
+		cfg := abc.NewABCConfig(n, i, t, t, kappa, delta, lambda, 0, txSize, committee, leaderFunc, handlers[i].Funcs)
 		if committee[i] {
-			abcs[i] = abc.NewABC(cfg, abc.NewTcs(keys.KeyShares[i], keys.KeyMeta, keys.KeyMetaCommittee, keys.Pk, proofs[i], keys.KeySharesCommitte[i], keys.DecryptionShares[i]))
+			abcs[i] = abc.NewABC(cfg, abc.NewTcs(keys.KeyShares[i], keys.KeyMeta, keys.KeyMetaCommittee, keys.Pk, keys.Proofs[i], keys.KeySharesCommitte[i], keys.DecryptionShares[i]))
 		} else {
-			abcs[i] = abc.NewABC(cfg, abc.NewTcs(keys.KeyShares[i], keys.KeyMeta, keys.KeyMetaCommittee, keys.Pk, proofs[i], nil, nil))
+			abcs[i] = abc.NewABC(cfg, abc.NewTcs(keys.KeyShares[i], keys.KeyMeta, keys.KeyMetaCommittee, keys.Pk, keys.Proofs[i], nil, nil))
 		}
 	}
 	return abcs
 }
 
-func setupKeys(n, kappa int) *keys {
+func setupKeys(n, kappa int) *Keys {
 	// If a file containing keys exists use that file
-	filename := fmt.Sprintf("keys/keys-%d", n)
+	filename := fmt.Sprintf("simulation/keys/keys-%d", n)
 	if fileExists(filename) {
 		f, err := os.Open(filename)
 		if err != nil {
 			panic(err)
 		}
-		keys := new(keys)
+		keys := new(Keys)
 		dec := gob.NewDecoder(f)
 		dec.Decode(keys)
 		f.Close()
@@ -155,19 +146,12 @@ func setupKeys(n, kappa int) *keys {
 		panic(err)
 	}
 
+	keySize := 128
+
 	// Setup encryption scheme
-	decryptionShares, pk, err := tcpaillier.NewKey(1024, 1, uint8(kappa), uint8(kappa/2+1))
+	decryptionShares, pk, err := tcpaillier.NewKey(keySize, 1, uint8(kappa), uint8(kappa/2+1))
 	if err != nil {
 		panic(err)
-	}
-
-	keys := &keys{
-		KeyShares:         keyShares,
-		KeyMeta:           keyMeta,
-		KeySharesCommitte: keySharesCommittee,
-		KeyMetaCommittee:  keyMetaCommittee,
-		Pk:                pk,
-		DecryptionShares:  decryptionShares,
 	}
 
 	// Setup proofs on nodeId (Dealer is node 0)
@@ -180,6 +164,16 @@ func setupKeys(n, kappa int) *keys {
 			panic(err)
 		}
 		proofs[i] = sig
+	}
+
+	keys := &Keys{
+		KeyShares:         keyShares,
+		KeyMeta:           keyMeta,
+		KeySharesCommitte: keySharesCommittee,
+		KeyMetaCommittee:  keyMetaCommittee,
+		Pk:                pk,
+		DecryptionShares:  decryptionShares,
+		Proofs:            proofs,
 	}
 
 	// Write keys to file
@@ -200,7 +194,7 @@ func randomTransactions(n, txSize, scale int) [][]byte {
 	for i := 0; i < bufsize; i++ {
 		token := make([]byte, txSize)
 		rand.Read(token)
-		//fmt.Printf("Generated tx: %x\n", token)
+		// fmt.Printf("Generated tx: %x\n", token)
 		buf[i] = token
 	}
 	return buf

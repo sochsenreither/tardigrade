@@ -14,26 +14,26 @@ type thresholdCrypto struct {
 	KeyMeta  *tcrsa.KeyMeta
 }
 
-type voteMessage struct {
+type VoteMessage struct {
 	Sender int
-	Vote   *vote
+	Vote   *Vote
 	Sig    *tcrsa.SigShare // Signature on sender and vote
 }
 
-type proposeMessage struct {
+type ProposeMessage struct {
 	Sender       int
-	Vote         *vote
-	VoteMessages map[int]*voteMessage // nodeId -> voteMessage
+	Vote         *Vote
+	VoteMessages map[int]*VoteMessage // nodeId -> voteMessage
 	Sig          *tcrsa.SigShare      // Signature on sender, vote and voteMessages
 }
-type vote struct {
+type Vote struct {
 	Round      int
 	BlockShare *utils.BlockShare
-	Commits    []*commitMessage
+	Commits    []*CommitMessage
 }
 
 // Hash returns a sha256 hash over all fields of the struct vote
-func (v *vote) Hash() [32]byte {
+func (v *Vote) Hash() [32]byte {
 	roundHash := sha256.Sum256([]byte(strconv.Itoa(v.Round)))
 	blockShareHash := v.BlockShare.Hash()
 	commitsHash := make([]byte, 0)
@@ -49,7 +49,7 @@ func (v *vote) Hash() [32]byte {
 }
 
 // Hash returns a sha256 hash over all the fields of the struct vote
-func (vm *voteMessage) Hash() [32]byte {
+func (vm *VoteMessage) Hash() [32]byte {
 	h := vm.HashWithoutSig()
 	sigHash := sha256.Sum256(vm.Sig.Xi)
 	l := make([]byte, 0)
@@ -59,7 +59,7 @@ func (vm *voteMessage) Hash() [32]byte {
 }
 
 // HashWithoutSig returns a sha256 hash over sender and vote
-func (vm *voteMessage) HashWithoutSig() [32]byte {
+func (vm *VoteMessage) HashWithoutSig() [32]byte {
 	senderHash := sha256.Sum256([]byte(strconv.Itoa(vm.Sender)))
 	voteHash := vm.Vote.Hash()
 	h := make([]byte, 0)
@@ -70,7 +70,7 @@ func (vm *voteMessage) HashWithoutSig() [32]byte {
 }
 
 // Hash returns a sha256 hash over all the fields of the struct proposeMessage
-func (pm *proposeMessage) Hash() [32]byte {
+func (pm *ProposeMessage) Hash() [32]byte {
 	h := pm.HashWithoutSig()
 	s := sha256.Sum256(pm.Sig.Xi)
 	l := make([]byte, 0)
@@ -81,7 +81,7 @@ func (pm *proposeMessage) Hash() [32]byte {
 }
 
 // HashWithoutSig returns a sha256 hash over sender, vote and voteMessages
-func (pm *proposeMessage) HashWithoutSig() [32]byte {
+func (pm *ProposeMessage) HashWithoutSig() [32]byte {
 	senderHash := sha256.Sum256([]byte(strconv.Itoa(pm.Sender)))
 	voteHash := pm.Vote.Hash()
 	vh := make([]byte, 0)
@@ -108,30 +108,30 @@ func (pm *proposeMessage) HashWithoutSig() [32]byte {
 	return hash
 }
 
-type gradedConsensusResult struct {
-	blockShare *utils.BlockShare
-	commits    []*commitMessage // List of same commitMessages from different nodes
-	grade      int
+type GradedConsensusResult struct {
+	BlockShare *utils.BlockShare
+	Commits    []*CommitMessage // List of same commitMessages from different nodes
+	Grade      int
 }
 
-type notifyMessage struct {
-	sender     int
-	round      int
-	blockShare *utils.BlockShare
-	commits    []*commitMessage // List of same commitMessages from different nodes
+type NotifyMessage struct {
+	Sender     int
+	Round      int
+	BlockShare *utils.BlockShare
+	Commits    []*CommitMessage // List of same commitMessages from different nodes
 }
 
-type commitMessage struct {
-	sender     int
-	round      int
-	blockShare *utils.BlockShare
-	sig        *tcrsa.SigShare
+type CommitMessage struct {
+	Sender     int
+	Round      int
+	BlockShare *utils.BlockShare
+	Sig        *tcrsa.SigShare
 }
 
 // Hash returns a sha256 hash over all the fields of struct commitMessage
-func (c *commitMessage) Hash() [32]byte {
+func (c *CommitMessage) Hash() [32]byte {
 	h := c.HashWithoutSig()
-	s := sha256.Sum256(c.sig.Xi)
+	s := sha256.Sum256(c.Sig.Xi)
 	l := make([]byte, 0)
 	l = append(l, h[:]...)
 	l = append(l, s[:]...)
@@ -139,10 +139,10 @@ func (c *commitMessage) Hash() [32]byte {
 }
 
 // HashWithoutSig returns a sha256 hash over sender, round and blockShare
-func (c *commitMessage) HashWithoutSig() [32]byte {
-	s := sha256.Sum256([]byte(strconv.Itoa(c.sender)))
-	r := sha256.Sum256([]byte(strconv.Itoa(c.round)))
-	bs := c.blockShare.Hash()
+func (c *CommitMessage) HashWithoutSig() [32]byte {
+	s := sha256.Sum256([]byte(strconv.Itoa(c.Sender)))
+	r := sha256.Sum256([]byte(strconv.Itoa(c.Round)))
+	bs := c.BlockShare.Hash()
 	l := make([]byte, 0)
 	l = append(l, bs[:]...)
 	l = append(l, s[:]...)

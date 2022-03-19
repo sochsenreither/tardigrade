@@ -40,13 +40,13 @@ type ThresholdCrypto struct {
 	SkC       *tcrsa.KeyShare // Private signing key for committee members
 }
 
-type acsSignatureMessage struct {
+type AcsSignatureMessage struct {
 	Sender int
 	Hash   [32]byte
 	Sig    *tcrsa.Signature // combined signature on values
 }
 
-type acsCommitteeMessage struct {
+type AcsCommitteeMessage struct {
 	Sender   int
 	Values   []*utils.BlockShare
 	Hash     [32]byte
@@ -63,7 +63,7 @@ type ACSConfig struct {
 	UROUND int
 }
 
-func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, handler *utils.Handler) *CommonSubset {
+func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, handlerFuncs *utils.HandlerFuncs) *CommonSubset {
 	out := make(chan []*utils.BlockShare, 100)
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
 
@@ -81,10 +81,10 @@ func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs
 		tc:        sig,
 	}
 	acs.multicast = func(msg *utils.Message) {
-		handler.Funcs.ACSmulticast(msg, acs.UROUND)
+		handlerFuncs.ACSmulticast(msg, acs.UROUND)
 	}
 	acs.receive = func() *utils.Message {
-		return handler.Funcs.ACSreceive(acs.UROUND)
+		return handlerFuncs.ACSreceive(acs.UROUND)
 	}
 	return acs
 }
@@ -178,7 +178,7 @@ func (acs *CommonSubset) Run() {
 			acsFinished = ret
 		case mes := <-messageChan:
 			switch m := mes.Payload.(type) {
-			case *acsSignatureMessage:
+			case *AcsSignatureMessage:
 				if receivedHash != nil && signature != nil {
 					// TODO: Can this really happen?
 					break
@@ -190,7 +190,7 @@ func (acs *CommonSubset) Run() {
 				if s != nil {
 					signature = s
 				}
-			case *acsCommitteeMessage:
+			case *AcsCommitteeMessage:
 				h, s := acs.handleCommit(m, sharesReceived)
 				if h != nil {
 					receivedHash = h
@@ -330,7 +330,7 @@ func (acs *CommonSubset) multicastCommit(values []*utils.BlockShare) {
 		// log.Printf("Node %d failed to create signature", acs.nodeId)
 		return
 	}
-	payload := &acsCommitteeMessage{
+	payload := &AcsCommitteeMessage{
 		Sender:   acs.nodeId,
 		Values:   values,
 		Hash:     hash,
@@ -370,7 +370,7 @@ func (acs *CommonSubset) signHash(hash [32]byte) (*tcrsa.SigShare, error) {
 
 // handleCommit checks if a received commit message is valid and checks if enough are received on
 // the same value and then forms a signature and multicasts it.
-func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map[[32]byte]map[int]*tcrsa.SigShare) ([]byte, tcrsa.Signature) {
+func (acs *CommonSubset) handleCommit(m *AcsCommitteeMessage, sharesReceived map[[32]byte]map[int]*tcrsa.SigShare) ([]byte, tcrsa.Signature) {
 	if !acs.committee[m.Sender] {
 		return nil, nil
 	}
@@ -400,7 +400,7 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 		}
 		mes := &utils.Message{
 			Sender: acs.nodeId,
-			Payload: &acsSignatureMessage{
+			Payload: &AcsSignatureMessage{
 				Sender: acs.nodeId,
 				Hash:   m.Hash,
 				Sig:    &signature,
@@ -414,7 +414,7 @@ func (acs *CommonSubset) handleCommit(m *acsCommitteeMessage, sharesReceived map
 }
 
 // handleSignatureMessage verifies a combined signature and if it is valid multicasts it.
-func (acs *CommonSubset) handleSignatureMessage(m *acsSignatureMessage) ([]byte, tcrsa.Signature) {
+func (acs *CommonSubset) handleSignatureMessage(m *AcsSignatureMessage) ([]byte, tcrsa.Signature) {
 	err := rsa.VerifyPKCS1v15(acs.tc.KeyMetaC.PublicKey, crypto.SHA256, m.Hash[:], *m.Sig)
 	if err != nil {
 		// log.Printf("Node %d received signature message with invalid signature", acs.nodeId)
@@ -422,7 +422,7 @@ func (acs *CommonSubset) handleSignatureMessage(m *acsSignatureMessage) ([]byte,
 	}
 	mes := &utils.Message{
 		Sender: acs.nodeId,
-		Payload: &acsSignatureMessage{
+		Payload: &AcsSignatureMessage{
 			Sender: acs.nodeId,
 			Hash:   m.Hash,
 			Sig:    m.Sig,
@@ -434,7 +434,7 @@ func (acs *CommonSubset) handleSignatureMessage(m *acsSignatureMessage) ([]byte,
 }
 
 // isValidSignature returns whether a signature for a hash and a proof on the nodeId is valid.
-func (acs *CommonSubset) isValidSignature(m *acsCommitteeMessage) bool {
+func (acs *CommonSubset) isValidSignature(m *AcsCommitteeMessage) bool {
 	hash := acs.hashValues(m.Values)
 	if hash != m.Hash {
 		// log.Printf("Node %d received message with invalid hash", acs.nodeId)

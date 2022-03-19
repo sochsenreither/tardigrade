@@ -1,8 +1,12 @@
 package binaryagreement
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/sha256"
+	"encoding/gob"
+	"net"
+	"time"
 
 	"log"
 	"strconv"
@@ -11,22 +15,109 @@ import (
 	"github.com/sochsenreither/upgrade/utils"
 )
 
+// TODO: network handler for coin
+// TODO: network coin (doesn't use channels but ip addresses)
+
 type CommonCoin struct {
-	N           int               // Number of nodes
-	KeyMeta     *tcrsa.KeyMeta    // PKI
+	N           int                     // Number of nodes
+	KeyMeta     *tcrsa.KeyMeta          // PKI
 	RequestChan chan *utils.CoinRequest // Channel to receive requests
+	Answer      func(req *utils.CoinRequest, val byte)
+	Listener    func(requestChan chan *utils.CoinRequest)
 }
 
-func NewCommonCoin(n int, keyMeta *tcrsa.KeyMeta, requestChannel chan *utils.CoinRequest) *CommonCoin {
+func NewLocalCommonCoin(n int, keyMeta *tcrsa.KeyMeta, requestChannel chan *utils.CoinRequest) *CommonCoin {
+	answer := func(req *utils.CoinRequest, val byte) {
+		req.AnswerLocal <- val
+	}
 	coin := &CommonCoin{
 		N:           n,
 		KeyMeta:     keyMeta,
 		RequestChan: requestChannel,
+		Answer:      answer,
+	}
+	return coin
+}
+
+func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *CommonCoin {
+	ownIP := ips[-1]
+	requestChan := make(chan *utils.CoinRequest, 9999)
+
+	// Listens to incoming request on the network
+	listener := func(requestChan chan *utils.CoinRequest) {
+		log.Printf("Common coin starting to listen to port %s", ownIP)
+		l, err := net.Listen("tcp", ownIP)
+		if err != nil {
+			log.Fatalf("Coin wasn't able to start a listener. %s", err)
+		}
+
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				log.Printf("Coin wasn't able to accept connection. %s", err)
+				continue
+			}
+			data := make([]byte, 1000)
+			c.Read(data)
+			buf := bytes.NewBuffer(data)
+			coinRequest := new(utils.CoinRequest)
+			dec := gob.NewDecoder(buf)
+			err = dec.Decode(coinRequest)
+			if err != nil {
+				log.Printf("Coin wasn't able to decode message. %s", err)
+				continue
+			}
+			//log.Printf("Coin received request. Sender: %d UROUND: %d Round: %d", coinRequest.Sender, coinRequest.UROUND, coinRequest.Round)
+			requestChan <- coinRequest
+		}
+	}
+
+	answer := func(req *utils.CoinRequest, val byte) {
+		receiverIP := ips[req.Sender]
+		c, err := net.Dial("tcp", receiverIP)
+		for err != nil {
+			time.Sleep(200 * time.Millisecond)
+			c, err = net.Dial("tcp", receiverIP)
+		}
+		// Sender will be the value
+		msg := &utils.Message{
+			Sender:  int(val),
+			Payload: nil,
+		}
+		handlerMsg := &utils.HandlerMessage{
+			UROUND:   req.UROUND,
+			Round:    req.Round,
+			Instance: req.Instance,
+			Origin:   utils.COIN,
+			Payload:  msg,
+		}
+		buf := new(bytes.Buffer)
+		enc := gob.NewEncoder(buf)
+		err = enc.Encode(handlerMsg)
+		if err != nil {
+			log.Printf("Coin wasn't able to encode message. %s", err)
+		}
+		c.Write(buf.Bytes())
+		// for err != nil {
+		// 	time.Sleep(200 * time.Millisecond)
+		// 	_, err = c.Write([]byte{val})
+		// }
+	}
+
+	coin := &CommonCoin{
+		N:           n,
+		KeyMeta:     keyMeta,
+		RequestChan: requestChan,
+		Answer:      answer,
+		Listener:    listener,
 	}
 	return coin
 }
 
 func (cc *CommonCoin) Run() {
+	if cc.Listener != nil {
+		go cc.Listener(cc.RequestChan)
+	}
 	// Maps from UROUND -> round -> instance -> nodeId
 	received := make(map[int]map[int]map[int]map[int]*utils.CoinRequest)
 	alreadySent := make(map[int]map[int]map[int]bool)
@@ -69,7 +160,7 @@ func (cc *CommonCoin) Run() {
 
 		// Verify if the received signature share is valid
 		if err := request.Sig.Verify(hash, cc.KeyMeta); err != nil {
-			log.Print("Common coin couldn't verify signature share from node", sender)
+			log.Printf("Common coin couldn't verify signature share from node %d. %s", sender, err)
 			continue
 		}
 
@@ -77,7 +168,7 @@ func (cc *CommonCoin) Run() {
 		if len(received[UROUND][round][instance]) >= cc.N/2+1 {
 			if alreadySent[UROUND][round][instance] {
 				// If the coin was already created and multicasted and if some node asks for the value at a later time, send the value only to this node
-				answer(request.Answer, coinVals[UROUND][round])
+				go cc.Answer(request, coinVals[UROUND][round])
 			} else {
 				// Combine all received signature shares to a certificate
 				// log.Println("Creating certificate in round", round)
@@ -96,15 +187,11 @@ func (cc *CommonCoin) Run() {
 				lsb := certHash[len(certHash)-1] & 0x01
 
 				for _, req := range received[UROUND][round][instance] {
-					answer(req.Answer, lsb)
+					go cc.Answer(req, lsb)
 				}
 				alreadySent[UROUND][round][instance] = true
 				coinVals[UROUND][round] = lsb
 			}
 		}
 	}
-}
-
-func answer(receiver chan byte, val byte) {
-	receiver <- val
 }

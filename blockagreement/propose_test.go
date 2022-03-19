@@ -116,7 +116,7 @@ func newTestProposeInstance(n, ts, proposer, round int) *testProposeInstance {
 
 	// Set up individual propose protocols
 	for i := 0; i < n; i++ {
-		vote := &vote{
+		vote := &Vote{
 			Round:      0,
 			BlockShare: blockShare,
 			Commits:    nil,
