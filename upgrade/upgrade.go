@@ -859,6 +859,11 @@ func (abc *ABC) handleCommitteeMessage(r int, m *CommitteeMessage, ptr **utils.B
 // 2. The signature of the hash is valid.
 // 3. The hash matches the hashed pre-block
 func (abc *ABC) isValidCommitteeMessage(m *CommitteeMessage) bool {
+	// TODO: fix
+	if m == nil || m.HashSig == nil || m.Proof == nil || m.PreBlock == nil {
+		log.Printf("Received corrupted committee message")
+		return false
+	}
 	// Condition 1:
 	hash := sha256.Sum256([]byte(strconv.Itoa(m.Sender)))
 	paddedHash, err := tcrsa.PrepareDocumentHash(abc.tcs.keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])

@@ -12,7 +12,7 @@ import (
 
 
 func RunNetwork() {
-	networkSimulation(3, 0, 100, 2500, 2, 8)
+	networkSimulation(10, 0, 60, 800, 2, 8)
 }
 
 func networkSimulation(n, t, delta, lambda, kappa, txSize int) {

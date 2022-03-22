@@ -172,12 +172,12 @@ func NewLocalHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest,
 		return receive(ABC, UROUND)
 	}
 
-	coinCall := func(msg *CoinRequest) (byte, error) {
+	coinCall := func(msg *CoinRequest) byte {
 		answer := make(chan byte, 100)
 		msg.AnswerLocal = answer
 		coin <- msg
 		val := <-answer
-		return val, nil
+		return val
 	}
 
 	// Receiver that assigns incoming messages to the correct channels

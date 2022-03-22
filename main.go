@@ -25,6 +25,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
 	// Register datatypes that will be used as interface{} in utils.Message
 	gob.Register(&aba.AbaMessage{})
 
@@ -49,5 +50,7 @@ func main() {
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
 	//simulation.NewSimulationConfig(3, 0, 100, 2500, 2, 8)
-	simulation.RunNode(arg,3, 0, 200, 7500, 2, 8)
+	//simulation.RunNode(arg, 3, 0, 200, 1500, 2, 8)
+	_ = arg
+	simulation.RunNetwork()
 }

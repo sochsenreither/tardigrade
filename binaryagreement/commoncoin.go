@@ -1,11 +1,11 @@
 package binaryagreement
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/sha256"
 	"encoding/gob"
 	"net"
+	"sync"
 	"time"
 
 	"log"
@@ -41,6 +41,8 @@ func NewLocalCommonCoin(n int, keyMeta *tcrsa.KeyMeta, requestChannel chan *util
 
 func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *CommonCoin {
 	ownIP := ips[-1]
+	conns := make(map[int]*gob.Encoder)
+	var connsLock sync.Mutex
 	requestChan := make(chan *utils.CoinRequest, 9999)
 
 	// Listens to incoming request on the network
@@ -57,28 +59,39 @@ func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *Co
 				log.Printf("Coin wasn't able to accept connection. %s", err)
 				continue
 			}
-			data := make([]byte, 1000)
-			c.Read(data)
-			buf := bytes.NewBuffer(data)
-			coinRequest := new(utils.CoinRequest)
-			dec := gob.NewDecoder(buf)
-			err = dec.Decode(coinRequest)
-			if err != nil {
-				log.Printf("Coin wasn't able to decode message. %s", err)
-				continue
-			}
-			//log.Printf("Coin received request. Sender: %d UROUND: %d Round: %d", coinRequest.Sender, coinRequest.UROUND, coinRequest.Round)
-			requestChan <- coinRequest
+
+			go func(c net.Conn) {
+				dec := gob.NewDecoder(c)
+
+				for {
+					request := new(utils.CoinRequest)
+					err := dec.Decode(request)
+					if err != nil {
+						log.Printf("Coin wasn't able to decode message. %s", err)
+						continue
+					}
+					requestChan <- request
+				}
+			}(c)
 		}
 	}
 
 	answer := func(req *utils.CoinRequest, val byte) {
-		receiverIP := ips[req.Sender]
-		c, err := net.Dial("tcp", receiverIP)
-		for err != nil {
-			time.Sleep(200 * time.Millisecond)
-			c, err = net.Dial("tcp", receiverIP)
+		connsLock.Lock()
+		defer connsLock.Unlock()
+		i := req.Sender
+
+		if conns[i] == nil {
+			// Create a new connection and encoder
+			c, err := net.Dial("tcp", ips[i])
+			for err != nil {
+				time.Sleep(10 * time.Millisecond)
+				c, err = net.Dial("tcp", ips[i])
+			}
+			enc := gob.NewEncoder(c)
+			conns[i] = enc
 		}
+
 		// Sender will be the value
 		msg := &utils.Message{
 			Sender:  int(val),
@@ -91,17 +104,10 @@ func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *Co
 			Origin:   utils.COIN,
 			Payload:  msg,
 		}
-		buf := new(bytes.Buffer)
-		enc := gob.NewEncoder(buf)
-		err = enc.Encode(handlerMsg)
+		err := conns[i].Encode(handlerMsg)
 		if err != nil {
 			log.Printf("Coin wasn't able to encode message. %s", err)
 		}
-		c.Write(buf.Bytes())
-		// for err != nil {
-		// 	time.Sleep(200 * time.Millisecond)
-		// 	_, err = c.Write([]byte{val})
-		// }
 	}
 
 	coin := &CommonCoin{

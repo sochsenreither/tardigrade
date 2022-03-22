@@ -14,18 +14,18 @@ import (
 
 type BinaryAgreement struct {
 	UROUND          int
-	n               int                                        // Number of nodes
-	nodeId          int                                        // Id of node
-	t               int                                        // Number of maximum faulty nodes
-	value           int                                        // Initial input
-	round           int                                        // Current round of aba, not the round of the top protocol
-	instance        int                                        // Id of the current instance
-	coinCall        func(msg *utils.CoinRequest) (byte, error) // Common coin for randomness
-	thresholdCrypto *ThresholdCrypto                           // Secret key and key meta for signing
-	multicast       func(msg *utils.Message)                   // Function for multicasting
-	receive         func() *utils.Message                      // Blocking function for receiving messages
-	out             chan int                                   // Output channel
-	sync.Mutex                                                 // Lock
+	n               int                               // Number of nodes
+	nodeId          int                               // Id of node
+	t               int                               // Number of maximum faulty nodes
+	value           int                               // Initial input
+	round           int                               // Current round of aba, not the round of the top protocol
+	instance        int                               // Id of the current instance
+	coinCall        func(msg *utils.CoinRequest) byte // Common coin for randomness
+	thresholdCrypto *ThresholdCrypto                  // Secret key and key meta for signing
+	multicast       func(msg *utils.Message)          // Function for multicasting
+	receive         func() *utils.Message             // Blocking function for receiving messages
+	out             chan int                          // Output channel
+	sync.Mutex                                        // Lock
 }
 
 type AbaMessage struct {
@@ -286,7 +286,7 @@ func (aba *BinaryAgreement) callCommonCoin() int {
 		AnswerLocal: nil,
 		Instance:    aba.instance,
 	}
-	val, err := aba.coinCall(msg)
+	val := aba.coinCall(msg)
 	if err != nil {
 		// log.Printf("Node %d failed to call coin. UROUND %d, round %d, instance %d", msg.Sender, msg.UROUND, msg.Round, msg.Instance)
 	}
