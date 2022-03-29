@@ -40,13 +40,13 @@ func TestBroadcastParallelMultipleSendersOneRound(t *testing.T) {
 	// the sender is byzantine. The test should still terminate and every other instance should be
 	// correct)
 	n := 4
-	ta := 1
+	ta := 2
 	kappa := 1
 	var wg sync.WaitGroup
 	nodeChans := make(map[int]chan *utils.HandlerMessage)
 	var handlers []*utils.LocalHandler
 	for i := 0; i < n; i++ {
-		nodeChans[i] = make(chan *utils.HandlerMessage, 99999)
+		nodeChans[i] = make(chan *utils.HandlerMessage, 9999)
 	}
 
 	inputs := [4][]byte{[]byte("zero"), []byte("one"), []byte("two"), []byte("three")}

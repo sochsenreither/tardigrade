@@ -104,6 +104,7 @@ func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *Co
 			Origin:   utils.COIN,
 			Payload:  msg,
 		}
+		// log.Printf("Coin answering Node %d instance %d", i, req.Instance)
 		err := conns[i].Encode(handlerMsg)
 		if err != nil {
 			log.Printf("Coin wasn't able to encode message. %s", err)

@@ -29,20 +29,32 @@ type Keys struct {
 }
 
 func RunLocal() {
-	local(2, 0, 20, 150, 2, 8)
+	local(6, 0, 20, 150, 2, 8)
 }
 
 func local(n, t, delta, lambda, kappa, txSize int) {
 	bufTicker := time.NewTicker(time.Duration(lambda) * time.Millisecond) // Ticker for filling buf
 
 	// run ABCs
+	maxRounds := 1
 	abcs := setupLocalSimulation(n, t, delta, lambda, kappa, txSize)
+	rcfgs := make(map[int]*abc.RoundConfig)
+	hCfg := &abc.RoundConfig{
+		Ta: 0,
+		Ts: 0,
+		Crashed: map[int]bool{},
+	}
+
+	for i := 0; i < maxRounds; i++ {
+		rcfgs[i] = hCfg
+	}
+
 	fmt.Printf("Setup done, starting simulation...\n\n")
 	for i := 0; i < n; i++ {
 		i := i
 		abcs[i].FillBuffer(randomTransactions(n, txSize, 20))
 		go func() {
-			abcs[i].Run(-1)
+			abcs[i].Run(maxRounds, rcfgs)
 		}()
 	}
 
@@ -123,7 +135,7 @@ func setupLocalSimulation(n, t, delta, lambda, kappa, txSize int) []*abc.ABC {
 
 func setupKeys(n, kappa int) *Keys {
 	// If a file containing keys exists use that file
-	filename := fmt.Sprintf("simulation/keys/keys-%d", n)
+	filename := fmt.Sprintf("simulation/keys/keys-%d-%d", n, kappa)
 	if fileExists(filename) {
 		f, err := os.Open(filename)
 		if err != nil {

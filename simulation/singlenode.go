@@ -41,20 +41,56 @@ func SetupNode(id, n, t, delta, lambda, kappa, txSize int) *abc.ABC {
 	}
 }
 
-func RunNode(id, n, t, delta, lambda, kappa, txSize int) {
-	// If id == -1 run coin
-	if id == -1 {
-		keys := setupKeys(n, kappa)
+func runCoin(n, kappa int) {
+	keys := setupKeys(n, kappa)
 		ips := GetIPs(n)
 		coin := aba.NewNetworkCommonCoin(n, keys.KeyMeta, ips)
 		coin.Run()
+}
+
+func RunNode(id, n, t, delta, lambda, kappa, txSize int) {
+	// If id == -1 run coin
+	if id == -1 {
+		// keys := setupKeys(n, kappa)
+		// ips := GetIPs(n)
+		// coin := aba.NewNetworkCommonCoin(n, keys.KeyMeta, ips)
+		// coin.Run()
+		runCoin(n, kappa)
 		return
 	}
 
 	node := SetupNode(id, n, t, delta, lambda, kappa, txSize)
 	fmt.Printf("Setup done for node %d. Starting...\n", id)
-	node.FillBuffer(randomTransactions(n, txSize, 20))
-	go node.Run(-1)
+	node.FillBuffer(randomTransactions(n, txSize, 5))
+	maxRounds := 30
+
+	rcfgs := make(map[int]*abc.RoundConfig)
+	hCfg := &abc.RoundConfig{
+		Ta: 0,
+		Ts: 0,
+		Crashed: map[int]bool{},
+	}
+	cCfg := &abc.RoundConfig{
+		Ta: 1,
+		Ts: 1,
+		Crashed: map[int]bool{
+			2: true,
+		},
+	}
+
+	for i := 0; i < 10; i++ {
+		rcfgs[i] = hCfg
+	}
+
+	for i := 10; i < 25; i++ {
+		rcfgs[i] = cCfg
+	}
+
+	for i := 25; i < maxRounds; i++ {
+		rcfgs[i] = hCfg
+	}
+
+	go node.Run(maxRounds, rcfgs)
 
 	bufTicker := time.NewTicker(time.Duration(lambda) * time.Millisecond) // Ticker for filling buf
 	statsTicker := time.NewTicker(5 * time.Second)                        // Ticker for stats
@@ -75,7 +111,7 @@ func RunNode(id, n, t, delta, lambda, kappa, txSize int) {
 			fmt.Printf(" ----------------------------------------------------\n")
 			ticks++
 		case <-bufTicker.C:
-			node.FillBuffer(randomTransactions(n, txSize, 10))
+			node.FillBuffer(randomTransactions(n, txSize, 2))
 		}
 	}
 }

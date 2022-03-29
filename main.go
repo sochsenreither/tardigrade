@@ -49,7 +49,6 @@ func main() {
 	gob.Register(&abc.PreBlockMessage{})
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
-	//simulation.NewSimulationConfig(3, 0, 100, 2500, 2, 8)
 	//simulation.RunNode(arg, 3, 0, 200, 1500, 2, 8)
 	_ = arg
 	simulation.RunNetwork()

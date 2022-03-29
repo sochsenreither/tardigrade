@@ -6,9 +6,9 @@ import (
 )
 
 type LocalHandler struct {
-	nodes    map[int]chan *HandlerMessage
-	Funcs    *HandlerFuncs
-	Chans    *HandlerChans
+	nodes map[int]chan *HandlerMessage
+	Funcs *HandlerFuncs
+	Chans *HandlerChans
 }
 
 func NewLocalHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest, id, n, kappa int) *LocalHandler {
@@ -50,7 +50,7 @@ func NewLocalHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest,
 			Payload:  msg,
 		}
 
-		// log.Printf("Node %d UROUND %d %d -> %T", msg.Sender, m.UROUND, m.origin, msg.Payload)
+		// log.Printf("Node %d UROUND %d %d -> %T", msg.Sender, m.UROUND, m.Origin, msg.Payload)
 		if p[3] != -1 {
 			// Send only to one node
 			nodes[p[3]] <- m
@@ -270,6 +270,8 @@ func NewLocalHandler(nodes map[int]chan *HandlerMessage, coin chan *CoinRequest,
 		Funcs: handlerFuncs,
 		Chans: handlerChans,
 	}
+
+	go receiver()
 
 	return handler
 }

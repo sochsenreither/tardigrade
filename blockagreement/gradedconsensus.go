@@ -2,7 +2,7 @@ package blockagreement
 
 import (
 	"crypto"
-	//"log"
+	"log"
 
 	"github.com/niclabs/tcrsa"
 	"github.com/sochsenreither/upgrade/utils"
@@ -19,14 +19,15 @@ type gradedConsensus struct {
 	out             chan *GradedConsensusResult             // Output channel
 	proposeProtocol *proposeProtocol                        // Underlying sub-protocol
 	multicast       func(msg *utils.Message, params ...int) // Function for multicasting messages
-	receive         func() chan *utils.Message              // Blocking function for receiving messages
-	leader          func() int                     // Function to determin the leader
+	leader          func() int                              // Function to determin the leader
+	notifyChans     map[int]chan *NotifyMessage
+	commitChans     map[int]chan *CommitMessage
 }
 
 // Returns a new graded consensus protocol instance
-func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *Vote, thresthresholdCrypto *thresholdCrypto, leaderFunc func(round, n int) int, multicastFunc func(msg *utils.Message, round int, receiver ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *gradedConsensus {
+func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *Vote, thresthresholdCrypto *thresholdCrypto, leaderFunc func(round, n int) int, multicastFunc func(msg *utils.Message, round int, receiver ...int), notifyChans map[int]chan *NotifyMessage, commitChans map[int]chan *CommitMessage, voteChans map[int]chan *VoteMessage, proposeChans map[int]chan *ProposeMessage) *gradedConsensus {
 	out := make(chan *GradedConsensusResult, 100)
-	propose := NewProposeProtocol(n, nodeId, t, -1, round, tickerChan, vote, thresthresholdCrypto, multicastFunc, receiveFunc)
+	propose := NewProposeProtocol(n, nodeId, t, -1, round, tickerChan, vote, thresthresholdCrypto, multicastFunc, voteChans, proposeChans)
 
 	gc := &gradedConsensus{
 		n:               n,
@@ -38,20 +39,19 @@ func NewGradedConsensus(n, nodeId, t, round int, tickerChan chan int, vote *Vote
 		thresholdCrypto: thresthresholdCrypto,
 		out:             out,
 		proposeProtocol: propose,
+		notifyChans:     notifyChans,
+		commitChans:     commitChans,
 	}
 
 	multicast := func(msg *utils.Message, params ...int) {
-		multicastFunc(msg, gc.round ,params...)
+		multicastFunc(msg, gc.round, params...)
 	}
-	receive := func() chan *utils.Message {
-		return receiveFunc(nodeId, gc.round)
-	}
+
 	leader := func() int {
 		return leaderFunc(gc.round, n)
 	}
 
 	gc.multicast = multicast
-	gc.receive = receive
 	gc.leader = leader
 
 	return gc
@@ -74,7 +74,7 @@ func (gc *gradedConsensus) run() {
 	proposeOut := gc.proposeProtocol.GetValue()
 	// multicast received output (if any)
 	if proposeOut != nil {
-		// log.Println("--GC--", gc.nodeId, "received output from propose and multicasts it")
+		// log.Println("--GC--", gc.nodeId, "received output from propose and multicasts it:", proposeOut.Hash())
 		gc.multicastCommitMessage(proposeOut)
 	}
 
@@ -106,23 +106,21 @@ func (gc *gradedConsensus) run() {
 			// log.Println("--GC--", gc.nodeId, "didn't receive any notify")
 			gc.out <- result
 			return
-		case message := <-gc.receive():
-			switch m := message.Payload.(type) {
-			case *NotifyMessage:
-				result := &GradedConsensusResult{
-					BlockShare: nil,
-					Commits:    nil,
-					Grade:      0,
-				}
-				if gc.isValidNotify(m) {
-					result.BlockShare = m.BlockShare
-					result.Commits = m.Commits
-					result.Grade = 1
-				}
-				// log.Println("--GC--", gc.nodeId, "received notify and terminates. Grade:", result.grade)
-				gc.out <- result
-				return
+		case m := <-gc.notifyChans[gc.round]:
+			result := &GradedConsensusResult{
+				BlockShare: nil,
+				Commits:    nil,
+				Grade:      0,
 			}
+			if gc.isValidNotify(m) {
+				result.BlockShare = m.BlockShare
+				result.Commits = m.Commits
+				result.Grade = 1
+			}
+			// log.Println("--GC--", gc.nodeId, "received notify and terminates. Grade:", result.grade)
+			gc.out <- result
+			return
+
 		}
 	}
 }
@@ -139,7 +137,7 @@ func (gc *gradedConsensus) multicastCommitMessage(bs *utils.BlockShare) {
 		Payload: commitMes,
 	}
 
-	// log.Println("--GC--", gc.nodeId, "multicasts commit")
+	//log.Println("--GC--", gc.nodeId, "multicasts commit")
 	gc.multicast(message)
 }
 
@@ -148,18 +146,19 @@ func (gc *gradedConsensus) handleCommitMessages(commits map[int]*CommitMessage) 
 	for {
 		select {
 		case gc.proposeProtocol.time = <-gc.proposeProtocol.tickerChan:
+			//log.Printf("Node %d received %d commit messages", gc.nodeId, len(commits))
 			return
-		case message := <-gc.receive():
-			switch m := message.Payload.(type) {
-			case *CommitMessage:
-				// Upon receiving the first valid commit message from a node add it to list of commits
-				if gc.verifyCommitMessage(m) && m.BlockShare.Block.Quality() >= gc.t+1 {
-					sender := m.Sender
-					// log.Println("--GC--", gc.nodeId, "received commit from", sender)
-					if commits[sender] == nil {
-						commits[sender] = m
-					}
+		case m := <-gc.commitChans[gc.round]:
+			//log.Printf("Node %d received commit message from %d", gc.nodeId, m.Sender)
+			// Upon receiving the first valid commit message from a node add it to list of commits
+			if gc.verifyCommitMessage(m) && m.BlockShare.Block.Quality() >= gc.t+1 {
+				sender := m.Sender
+				//log.Println("--GC--", gc.nodeId, "received valid commit from", sender)
+				if commits[sender] == nil {
+					commits[sender] = m
 				}
+			} else {
+				log.Printf("Node %d received invalid commit from %d", gc.nodeId, m.Sender)
 			}
 		}
 	}

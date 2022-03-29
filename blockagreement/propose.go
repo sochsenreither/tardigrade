@@ -4,8 +4,6 @@ import (
 	"crypto"
 	"crypto/sha256"
 
-	//"log"
-
 	"github.com/niclabs/tcrsa"
 	"github.com/sochsenreither/upgrade/utils"
 )
@@ -22,11 +20,12 @@ type proposeProtocol struct {
 	out             chan *utils.BlockShare                  // Output channel
 	thresholdCrypto *thresholdCrypto                        // Struct containing the secret key and key meta
 	multicast       func(msg *utils.Message, params ...int) // Function for multicasting messages
-	receive         func() chan *utils.Message              // Blocking function for receiving messages
+	voteChans       map[int]chan *VoteMessage
+	proposeChans    map[int]chan *ProposeMessage
 }
 
 // Returns a new propose protocol instance
-func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vote *Vote, thresthresholdCrypto *thresholdCrypto, multicastFunc func(msg *utils.Message, round int, receiver ...int), receiveFunc func(nodeId, round int) chan *utils.Message) *proposeProtocol {
+func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vote *Vote, thresthresholdCrypto *thresholdCrypto, multicastFunc func(msg *utils.Message, round int, receiver ...int), voteChans map[int]chan *VoteMessage, proposeChans map[int]chan *ProposeMessage) *proposeProtocol {
 	out := make(chan *utils.BlockShare, n)
 	p := &proposeProtocol{
 		n:               n,
@@ -39,17 +38,16 @@ func NewProposeProtocol(n, nodeId, t, proposerId, round int, ticker chan int, vo
 		vote:            vote,
 		out:             out,
 		thresholdCrypto: thresthresholdCrypto,
+		voteChans:       voteChans,
+		proposeChans:    proposeChans,
 	}
 
 	multicast := func(msg *utils.Message, params ...int) {
 		multicastFunc(msg, p.round, params...)
 	}
-	receive := func() chan *utils.Message {
-		return receiveFunc(nodeId, p.round)
-	}
 
 	p.multicast = multicast
-	p.receive = receive
+
 	return p
 }
 
@@ -92,7 +90,7 @@ func (p *proposeProtocol) sendVotes() {
 		Payload: voteMes,
 	}
 
-	// log.Println("--P--", p.nodeId, "Sending vote to proposer")
+	//log.Println("--P--", p.nodeId, "Sending vote to proposer")
 	p.multicast(message, p.proposerId)
 }
 
@@ -102,21 +100,17 @@ func (p *proposeProtocol) handleVotes(votes map[int]*VoteMessage) {
 		select {
 		case <-p.tickerChan:
 			return
-		case voteMes := <-p.receive():
-			switch v := voteMes.Payload.(type) {
-			case *VoteMessage:
-				// If the signature is invalid or the pre-block is invalid discard the message
-				if p.verifyVoteMessage(v) && p.isValidBlockShare(v.Vote.BlockShare) {
-					// log.Println("--P--", "Proposer received valid vote from", voteMes.Sender)
-					if votes[v.Sender] == nil {
-						votes[v.Sender] = v
-					}
-				} else {
-					// log.Println("--P--", "Proposer received invalid signature or invalid pre-block")
+		case v := <-p.voteChans[p.round]:
+			// If the signature is invalid or the pre-block is invalid discard the message
+			if p.verifyVoteMessage(v) && p.isValidBlockShare(v.Vote.BlockShare) {
+				// log.Println("--P--", "Proposer received valid vote from", voteMes.Sender)
+				if votes[v.Sender] == nil {
+					votes[v.Sender] = v
 				}
-			default:
-				// log.Printf("Expected vote from %d, got %T", voteMes.Sender, v)
+			} else {
+				// log.Println("--P--", "Proposer received invalid signature or invalid pre-block")
 			}
+
 		}
 	}
 }
@@ -155,42 +149,37 @@ func (p *proposeProtocol) handleProposals() {
 	received := false
 	for {
 		select {
-		case msg := <-p.receive():
-			switch proposal := msg.Payload.(type) {
-			case *ProposeMessage:
-				if proposal.Sender == p.proposerId {
-					// TODO: This happens only when using tcp. Why?
-					if proposal.Sig == nil {
-						continue
-					}
-					//log.Println("Node", p.nodeId,"got prop from",msg.Sender, proposal)
-					// Received proposal is from the proposer
-					// If the current node already received a message from the proposer ignore the next one (which will be a multicast forward)
-					if !received {
-						if p.isValidProposal(proposal) {
-							// Multicast proposal
-							leaderProposal = proposal
-							received = true
-							// log.Println("--P--", p.nodeId, "multicasting proposal")
-							mes := &utils.Message{
-								Sender:  p.nodeId,
-								Payload: proposal,
-							}
-							p.multicast(mes)
-						} else {
-							// If the proposal is invalid output nil
-							// log.Println("--P--", p.nodeId, "received invalid proposal from proposer")
-							p.out <- nil
-							return
-						}
-					}
-				} else {
-					// Received proposal is a forwarded proposal. Save it and check if every received proposal is exactly the same before terminating.
-					// log.Println("--P--", p.nodeId, "received forwarded proposal from", msg.Sender)
-					proposals = append(proposals, proposal)
+		case proposal := <-p.proposeChans[p.round]:
+			if proposal.Sender == p.proposerId {
+				// TODO: This happens only when using tcp. Why?
+				if proposal.Sig == nil {
+					continue
 				}
-			default:
-				// log.Printf("%d received wrong message type from %d, %T", p.nodeId, msg.Sender, proposal)
+				//log.Println("Node", p.nodeId,"got prop from",msg.Sender, proposal)
+				// Received proposal is from the proposer
+				// If the current node already received a message from the proposer ignore the next one (which will be a multicast forward)
+				if !received {
+					if p.isValidProposal(proposal) {
+						// Multicast proposal
+						leaderProposal = proposal
+						received = true
+						// log.Println("--P--", p.nodeId, "multicasting proposal")
+						mes := &utils.Message{
+							Sender:  p.nodeId,
+							Payload: proposal,
+						}
+						p.multicast(mes)
+					} else {
+						// If the proposal is invalid output nil
+						// log.Println("--P--", p.nodeId, "received invalid proposal from proposer")
+						p.out <- nil
+						return
+					}
+				}
+			} else {
+				// Received proposal is a forwarded proposal. Save it and check if every received proposal is exactly the same before terminating.
+				// log.Println("--P--", p.nodeId, "received forwarded proposal from", msg.Sender)
+				proposals = append(proposals, proposal)
 			}
 		case <-p.tickerChan:
 			// This is time 3 and therefore the last tick. Output either nil or a pre-block.

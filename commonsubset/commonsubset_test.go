@@ -29,13 +29,13 @@ func TestACSSameValue(t *testing.T) {
 	input := []byte("zero")
 	var blockShares []*utils.BlockShare
 	for i := 0; i < n-ta; i++ {
-		blockShares = append(blockShares, setupBlockShare(n, i, input, keyShares[i], keyMeta))
+		blockShares = append(blockShares, setupBlockShare(n, i, input, keyShares[0], keyMeta))
 	}
 
 	nodeChans := make(map[int]chan *utils.HandlerMessage)
 	var handlers []*utils.LocalHandler
 	for i := 0; i < n; i++ {
-		nodeChans[i] = make(chan *utils.HandlerMessage, 9999)
+		nodeChans[i] = make(chan *utils.HandlerMessage, 99)
 	}
 	for i := 0; i < n; i++ {
 		handlers = append(handlers, utils.NewLocalHandler(nodeChans, coin.RequestChan, i, n, kappa))
@@ -81,13 +81,8 @@ func TestACSSameValue(t *testing.T) {
 
 	for i := 0; i < n-ta; i++ {
 		got := acs[i].GetValue()
-		if len(got) != len(blockShares) {
+		if len(got) != 1 {
 			t.Errorf("Got output that doesn't match input. Expected %d, got %d", len(blockShares), len(got))
-		}
-		for i := 0; i < len(got); i++ {
-			if !bytes.Equal(got[i].Block.Vec[i].Message, input) {
-				t.Errorf("Got output that doesn't match input: Expected %s, got %s", input, got[i].Block.Vec[i].Message)
-			}
 		}
 	}
 }

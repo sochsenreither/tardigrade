@@ -99,13 +99,22 @@ func TestSimpleTest(t *testing.T) {
 	fmt.Println("Setup done, starting simulation...")
 	var wg sync.WaitGroup
 	wg.Add(cfg.n - cfg.ta)
+	cfgs := make(map[int]*RoundConfig)
+	hCfg := &RoundConfig{
+		Ta: 0,
+		Ts: 0,
+		Crashed: map[int]bool{},
+	}
+	for i := 0; i < maxRounds; i++ {
+		cfgs[i] = hCfg
+	}
 	start := time.Now()
 	for i := 0; i < cfg.n-cfg.ta; i++ {
 		//fmt.Println(i, len(abcs[i].acs), len(abcs[i].bla))
 		i := i
 		go func() {
 			defer wg.Done()
-			abcs[i].Run(maxRounds)
+			abcs[i].Run(maxRounds, cfgs)
 		}()
 	}
 	wg.Wait()

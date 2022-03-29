@@ -212,3 +212,7 @@ func TestBAEveryoneOutputsSameBlockWithDifferentInput(t *testing.T) {
 		prevHash = val.Hash()
 	}
 }
+
+func leader(round, n int) int {
+	return round % n
+}

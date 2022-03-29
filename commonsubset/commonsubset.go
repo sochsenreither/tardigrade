@@ -5,7 +5,8 @@ import (
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
-	//"log"
+
+	// "log"
 	"strconv"
 	"sync"
 
@@ -35,9 +36,9 @@ type CommonSubset struct {
 type ThresholdCrypto struct {
 	Sk       *tcrsa.KeyShare // Private signing key
 	KeyMeta  *tcrsa.KeyMeta  // Contains public keys to verify signatures
-	Proof *tcrsa.SigShare // Signature on node index signed by the dealer
+	Proof    *tcrsa.SigShare // Signature on node index signed by the dealer
 	KeyMetaC *tcrsa.KeyMeta  // Contains public keys to verify signatures of committee members
-	SkC       *tcrsa.KeyShare // Private signing key for committee members
+	SkC      *tcrsa.KeyShare // Private signing key for committee members
 }
 
 type AcsSignatureMessage struct {
@@ -60,7 +61,7 @@ type ACSConfig struct {
 	T       int
 	Kappa   int
 	Epsilon int
-	UROUND int
+	UROUND  int
 }
 
 func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs []*rbc.ReliableBroadcast, abas []*aba.BinaryAgreement, sig *ThresholdCrypto, handlerFuncs *utils.HandlerFuncs) *CommonSubset {
@@ -68,7 +69,7 @@ func NewACS(cfg *ACSConfig, comittee map[int]bool, input *utils.BlockShare, rbcs
 	tk := (((1 - cfg.Epsilon) * cfg.Kappa * cfg.T) / cfg.N)
 
 	acs := &CommonSubset{
-		UROUND: cfg.UROUND,
+		UROUND:    cfg.UROUND,
 		n:         cfg.N,
 		nodeId:    cfg.NodeId,
 		t:         cfg.T,
@@ -225,7 +226,6 @@ func (acs *CommonSubset) cOne(rbcVals map[int]*utils.BlockShare) (bool, *utils.B
 	if len(rbcVals) < acs.n-acs.t {
 		return false, nil
 	}
-	// TODO: bad runtime?
 	for _, v := range rbcVals {
 		if acs.cOneHelper(v, rbcVals) {
 			return true, v

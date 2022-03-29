@@ -116,7 +116,6 @@ func (h *HandlerChans) updateRound(UROUND, n, kappa int) {
 	h.coinLock.Unlock()
 }
 
-
 func (h *HandlerChans) listener(id, n, kappa int, c net.Conn) {
 	dec := gob.NewDecoder(c)
 

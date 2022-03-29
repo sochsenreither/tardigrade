@@ -157,7 +157,7 @@ func (rbc *ReliableBroadcast) SetValue(value *utils.BlockShare) {
 func (rbc *ReliableBroadcast) handleVal(m *BMessage, initialVal *bool) {
 	if !*initialVal {
 		*initialVal = true
-		// log.Printf("%d received value from %d", rbc.nodeId, m.sender)
+		// log.Printf("%d received value from %d", rbc.nodeId, m.Sender)
 		rbc.multicastEcho(m)
 	}
 }
@@ -165,7 +165,7 @@ func (rbc *ReliableBroadcast) handleVal(m *BMessage, initialVal *bool) {
 // handleEcho saves received ECHO messages and if ECHO messages from n-t distinct nodes are
 // received, a READY message will be multicasted.
 func (rbc *ReliableBroadcast) handleEcho(m *BMessage, echoReceived map[[32]byte]map[int]bool, ready *bool) {
-	// log.Printf("%d received ECHO from %d", rbc.nodeId, m.sender)
+	// log.Printf("%d received ECHO from %d", rbc.nodeId, m.Sender)
 	hash := sha256.Sum256(m.Value[:])
 	if echoReceived[hash] == nil {
 		echoReceived[hash] = make(map[int]bool)
@@ -184,7 +184,7 @@ func (rbc *ReliableBroadcast) handleEcho(m *BMessage, echoReceived map[[32]byte]
 // received, a READY will be multicasted. If n-t READY messages on some value v* are received,
 // output v*.
 func (rbc *ReliableBroadcast) handleReady(m *BMessage, readyMap map[[32]byte]map[int]bool, ready, broadcastDone *bool, broadcastValue *[32]byte) {
-	// log.Printf("%d received READY from %d", rbc.nodeId, m.sender)
+	// log.Printf("%d received READY from %d", rbc.nodeId, m.Sender)
 	hash := sha256.Sum256(m.Value[:])
 	if readyMap[hash] == nil {
 		readyMap[hash] = make(map[int]bool)

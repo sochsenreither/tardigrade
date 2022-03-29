@@ -287,9 +287,7 @@ func (aba *BinaryAgreement) callCommonCoin() int {
 		Instance:    aba.instance,
 	}
 	val := aba.coinCall(msg)
-	if err != nil {
-		// log.Printf("Node %d failed to call coin. UROUND %d, round %d, instance %d", msg.Sender, msg.UROUND, msg.Round, msg.Instance)
-	}
+
 	return int(val)
 }
 

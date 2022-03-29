@@ -20,14 +20,17 @@ import (
 )
 
 type ABC struct {
-	cfg       *ABCConfig                                      // Parameters for protocol
-	acss      []*acs.CommonSubset                             // Subset instances
-	blas      []*bla.BlockAgreement                           // Blockagreement instances
-	tcs       *tcs                                            // Keys for threshold crypto system
-	buf       [][]byte                                        // Transaction buffer
-	multicast func(msg *utils.Message, round int, rec ...int) // Function for multicasting messages
-	receive   func(round int) *utils.Message                  // Function for receiving messages
-	blocks    map[int]*utils.Block                            // Maps round -> block
+	cfg            *ABCConfig                                      // Parameters for protocol
+	acss           []*acs.CommonSubset                             // Subset instances
+	blas           []*bla.BlockAgreement                           // Blockagreement instances
+	tcs            *tcs                                            // Keys for threshold crypto system
+	buf            [][]byte                                        // Transaction buffer
+	multicast      func(msg *utils.Message, round int, rec ...int) // Function for multicasting messages
+	receive        func(round int) *utils.Message                  // Function for receiving messages
+	blocks         map[int]*utils.Block                            // Maps round -> block
+	latency        map[[32]byte]time.Time                          // TODO: refactor this?
+	LatencyTotal   time.Duration
+	FinishedRounds int
 	sync.Mutex
 }
 
@@ -77,28 +80,26 @@ func NewABC(cfg *ABCConfig, tcs *tcs) *ABC {
 
 	}
 
-	// Setup acs and bla for round 0 and 1
 	acss := make([]*acs.CommonSubset, 0)
 	blas := make([]*bla.BlockAgreement, 0)
-	for i := 0; i < 2; i++ {
-		acss = append(acss, setupACS(i, cfg, tcs))
-		blas = append(blas, setupBLA(i, cfg, tcs))
-	}
 
 	u := &ABC{
-		cfg:       cfg,
-		acss:      acss,
-		blas:      blas,
-		tcs:       tcs,
-		buf:       make([][]byte, 0),
-		multicast: multicast,
-		receive:   receive,
-		blocks:    make(map[int]*utils.Block),
+		cfg:            cfg,
+		acss:           acss,
+		blas:           blas,
+		tcs:            tcs,
+		buf:            make([][]byte, 0),
+		multicast:      multicast,
+		receive:        receive,
+		blocks:         make(map[int]*utils.Block),
+		latency:        make(map[[32]byte]time.Time),
+		LatencyTotal:   time.Duration(0),
+		FinishedRounds: 0,
 	}
 	return u
 }
 
-func (abc *ABC) Run(maxRound int) {
+func (abc *ABC) Run(maxRound int, roundCfg map[int]*RoundConfig) {
 	go abc.cfg.handlerFuncs.Receiver()
 
 	stop := make(chan struct{}, 100)
@@ -110,10 +111,9 @@ func (abc *ABC) Run(maxRound int) {
 	}
 	// Start first round immediately
 	go func() {
-		abc.Lock()
-		r := round
-		abc.Unlock()
-		abc.runProtocol(r)
+		abc.acss = append(abc.acss, setupACS(0, abc.cfg, abc.tcs, roundCfg[0].Ta))
+		abc.blas = append(abc.blas, setupBLA(0, abc.cfg, abc.tcs, roundCfg[0].Ts))
+		abc.runProtocol(0, roundCfg[0])
 		if maxRound > 0 {
 			wg.Done()
 		}
@@ -130,24 +130,30 @@ func (abc *ABC) Run(maxRound int) {
 			round++
 			abc.Unlock()
 			r := round
-			go func() {
-				if r >= maxRound && maxRound > 0 {
-					stop <- struct{}{}
-					return
-				}
-				abc.runProtocol(r)
-				if maxRound > 0 {
-					wg.Done()
-				}
-			}()
-			// setup acs and bla for the next round
-			abc.acss = append(abc.acss, setupACS(r+1, abc.cfg, abc.tcs))
-			abc.blas = append(abc.blas, setupBLA(r+1, abc.cfg, abc.tcs))
+			if r >= maxRound && maxRound > 0 {
+				stop <- struct{}{}
+			} else {
+				go func() {
+					abc.runProtocol(r, roundCfg[r])
+					if maxRound > 0 {
+						wg.Done()
+					}
+				}()
+				// setup acs and bla for the next round
+				abc.acss = append(abc.acss, setupACS(r+1, abc.cfg, abc.tcs, roundCfg[r].Ta))
+				abc.blas = append(abc.blas, setupBLA(r+1, abc.cfg, abc.tcs, roundCfg[r].Ts))
+			}
 		}
 	}
 }
 
-func (abc *ABC) runProtocol(r int) {
+func (abc *ABC) runProtocol(r int, rcfg *RoundConfig) {
+	if rcfg.Crashed[abc.cfg.nodeId] {
+		// "Crash" node for current round
+		log.Printf("Node %d crashing in round %d", abc.cfg.nodeId, r)
+		return
+	}
+
 	log.Printf("Node %d: starting round %d", abc.cfg.nodeId, r)
 	// Ticker for starting BLA
 	blaTicker := time.NewTicker(time.Duration(4*abc.cfg.delta) * time.Millisecond)
@@ -155,10 +161,10 @@ func (abc *ABC) runProtocol(r int) {
 	// Every round needs a unique lock.
 	var mu sync.Mutex
 
-	largePb := utils.NewPreBlock(abc.cfg.n - abc.cfg.ta) // large pre-block
+	largePb := utils.NewPreBlock(abc.cfg.n - rcfg.Ta) // large pre-block
 	largePb.Size = "large"
-	readyLarge := false                                  // Set when n-t-quality pre-block is received
-	smallPb := utils.NewPreBlock(abc.cfg.n - abc.cfg.ta) // Small pre-pointer
+	readyLarge := false                               // Set when n-t-quality pre-block is received
+	smallPb := utils.NewPreBlock(abc.cfg.n - rcfg.Ta) // Small pre-pointer
 	smallPb.Size = "small"
 	readySmall := false                                // Set when n-t-quality pre-block is received
 	readyChan := make(chan struct{}, 9999)             // Notify when ready == true
@@ -178,9 +184,9 @@ func (abc *ABC) runProtocol(r int) {
 			switch m := msg.Payload.(type) {
 			case *BlockMessage:
 				if m.Status == "large" && abc.cfg.committee[abc.cfg.nodeId] {
-					abc.handleLargeBlockMessage(r, m, largePb, &readyLarge, &mu)
+					abc.handleLargeBlockMessage(r, rcfg.Ta, m, largePb, &readyLarge, &mu)
 				} else {
-					abc.handleSmallBlockMessage(r, m, smallPb, &readySmall, &mu, readyChan)
+					abc.handleSmallBlockMessage(r, rcfg.Ta, m, smallPb, &readySmall, &mu, readyChan)
 				}
 			case *PointerMessage:
 				abc.handlePointerMessage(r, m, &ptr, &mu, ptrChan)
@@ -262,7 +268,7 @@ func (abc *ABC) runProtocol(r int) {
 
 	acsOutput := abc.acss[r].GetValue()
 	var block *utils.Block
-	log.Printf("Node %d round %d: received output from ACS. len: %d", abc.cfg.nodeId, r, len(acsOutput))
+	//log.Printf("Node %d round %d: received output from ACS. len: %d", abc.cfg.nodeId, r, len(acsOutput))
 	if len(acsOutput) == 1 {
 		// BLA was successfull and we got one large block as result
 		if abc.cfg.committee[abc.cfg.nodeId] {
@@ -290,18 +296,22 @@ func (abc *ABC) runProtocol(r int) {
 	}
 
 	//abc.setBlock(r, block)
-	count := abc.setBlock(r, block)
+	count, latency := abc.setBlock(r, block)
+	abc.Lock()
+	abc.LatencyTotal += latency
+	abc.FinishedRounds++
+	abc.Unlock()
 	if len(acsOutput) == 1 {
-		log.Printf("Node %d finishing round %d with %d transactions and successful bla", abc.cfg.nodeId, r, count)
+		log.Printf("Node %d finished round %d: %d transactions, %s latency and successful bla", abc.cfg.nodeId, r, count, latency)
 	} else {
-		log.Printf("Node %d finishing round %d with %d transactions and failed bla", abc.cfg.nodeId, r, count)
+		log.Printf("Node %d finished round %d: %d transactions, %s latency and failed bla", abc.cfg.nodeId, r, count, latency)
 	}
 }
 
 // SetBlock removes all transactions from the buffer that are in the block and sets the block of
 // the current round. Note: duplicate transactions in the buffer won't get removed, but there
 // shouldn't be duplicates anyway. Returns the amount of transactions in the block.
-func (abc *ABC) setBlock(r int, block *utils.Block) int {
+func (abc *ABC) setBlock(r int, block *utils.Block) (int, time.Duration) {
 	// Removes an element at index i
 	remove := func(arr [][]byte, i int) [][]byte {
 		arr[i] = arr[len(arr)-1]
@@ -311,19 +321,28 @@ func (abc *ABC) setBlock(r int, block *utils.Block) int {
 	}
 
 	abc.Lock()
+	removedTxs := 0
+	latency := time.Duration(0)
 	for _, tx := range block.Txs {
 		for i, bufTx := range abc.buf {
 			if bytes.Equal(tx, bufTx) {
 				//log.Printf("Node %d removing from buf: %s", abc.cfg.nodeId, tx)
+				h := sha256.Sum256(tx)
+				latency += time.Since(abc.latency[h])
+				removedTxs++
 				abc.buf = remove(abc.buf, i)
 			}
 		}
 	}
-
 	abc.blocks[r] = block
 	abc.Unlock()
 
-	return len(block.Txs)
+	// TODO: division by 0. What to do when there are no new transactions?
+	if removedTxs == 0 {
+		return len(block.Txs), latency
+	} else {
+		return len(block.Txs), latency / time.Duration(removedTxs)
+	}
 }
 
 func (abc *ABC) constructBlock(r int, b []*utils.PreBlock, decChan chan [][]*tcpaillier.DecryptionShare) *utils.Block {
@@ -342,11 +361,11 @@ func (abc *ABC) constructBlock(r int, b []*utils.PreBlock, decChan chan [][]*tcp
 	decCounter := 0
 	bytesCounter := 0
 	if len(b) == 1 {
+		// Decrypt large block
 		pb := b[0]
-		// Node got a large pre-block
 		decshares := make([][][]*tcpaillier.DecryptionShare, len(pb.Vec))
 		for i := range decshares {
-			decshares[i] = make([][]*tcpaillier.DecryptionShare, len(pb.Vec))
+			decshares[i] = make([][]*tcpaillier.DecryptionShare, abc.cfg.n)
 		}
 
 		for s := range decChan {
@@ -374,6 +393,7 @@ func (abc *ABC) constructBlock(r int, b []*utils.PreBlock, decChan chan [][]*tcp
 			}
 		}
 	} else {
+		// Decrypt small blocks
 		decshares := make([][][]*tcpaillier.DecryptionShare, len(b))
 		for i := range decshares {
 			decshares[i] = make([][]*tcpaillier.DecryptionShare, abc.cfg.n)
@@ -586,7 +606,7 @@ func (abc *ABC) handleLargeTransaction(r int, w [][]byte) {
 		Sender:  abc.cfg.nodeId,
 		Payload: mes,
 	}
-	//log.Printf("Node %d sending large block. Size: %d", abc.cfg.nodeId, len(tx))
+	// log.Printf("Node %d sending large block. Size: %d", abc.cfg.nodeId, len(tx))
 	// Only send to committee members
 	for i := 0; i < abc.cfg.n; i++ {
 		if abc.cfg.committee[i] {
@@ -594,29 +614,6 @@ func (abc *ABC) handleLargeTransaction(r int, w [][]byte) {
 		}
 	}
 }
-
-// func (abc *ABC) handleLargeTransaction(r int, w [][]byte) {
-// 	// Encrypt one by one and then merge
-// 	// Merge slice of byte slices to one byte slice
-// 	tx := make([]byte, 0)
-// 	for _, t := range w {
-// 		tx = append(tx, t...)
-// 	}
-// 	log.Printf("Node %d round %d: proposing %s - %dB", abc.cfg.nodeId, r, tx, len(tx))
-// 	data := new(big.Int)
-// 	data.SetBytes(tx)
-
-// 	m, err := abc.encryptAndSign(r, data, "large")
-// 	if err != nil {
-// 		return
-// 	}
-// 	// Only send to committee members
-// 	for i := 0; i < abc.cfg.n; i++ {
-// 		if abc.cfg.committee[i] {
-// 			abc.multicast(m, r, i)
-// 		}
-// 	}
-// }
 
 // handleSmallTransaction sends a blockMessage containing encrypted transaction tx to node i.
 func (abc *ABC) handleSmallTransaction(i, r int, tx []byte) {
@@ -667,7 +664,7 @@ func (abc *ABC) encryptAndSign(r int, data *big.Int, status string) (*utils.Mess
 }
 
 // handleSmallBlockMessage saves incoming blockMessages containing small blocks.
-func (abc *ABC) handleSmallBlockMessage(r int, m *BlockMessage, b *utils.PreBlock, rdy *bool, mu *sync.Mutex, readyChan chan struct{}) {
+func (abc *ABC) handleSmallBlockMessage(r, ta int, m *BlockMessage, b *utils.PreBlock, rdy *bool, mu *sync.Mutex, readyChan chan struct{}) {
 	mu.Lock()
 	defer mu.Unlock()
 	if b.Vec[m.Sender] == nil {
@@ -677,7 +674,7 @@ func (abc *ABC) handleSmallBlockMessage(r int, m *BlockMessage, b *utils.PreBloc
 		}
 		b.AddMessage(m.Sender, pbMes)
 
-		if b.Quality() >= abc.cfg.n-abc.cfg.ta && !*rdy {
+		if b.Quality() >= abc.cfg.n-ta && !*rdy {
 			*rdy = true
 			readyChan <- struct{}{}
 		}
@@ -685,18 +682,17 @@ func (abc *ABC) handleSmallBlockMessage(r int, m *BlockMessage, b *utils.PreBloc
 }
 
 // handleLargeBlockMessage saves incoming blockMessages containing large blocks.
-func (abc *ABC) handleLargeBlockMessage(r int, m *BlockMessage, b *utils.PreBlock, rdy *bool, mu *sync.Mutex) {
+func (abc *ABC) handleLargeBlockMessage(r, ta int, m *BlockMessage, b *utils.PreBlock, rdy *bool, mu *sync.Mutex) {
 	mu.Lock()
 	defer mu.Unlock()
 	if b.Vec[m.Sender] == nil {
-		//log.Printf("Node %d: received from %d: %x", abc.cfg.nodeId, m.sender, m.payload)
 		pbMes := &utils.PreBlockMessage{
 			Message: m.Payload,
 			Sig:     m.Sig,
 		}
 		b.Vec[m.Sender] = pbMes
 
-		if b.Quality() >= abc.cfg.n-abc.cfg.ta && !*rdy {
+		if b.Quality() >= abc.cfg.n-ta && !*rdy {
 			//log.Printf("Node %d: has a %d-quality pre-block", abc.cfg.nodeId, b.Quality())
 			*rdy = true
 			h := b.Hash()
@@ -922,6 +918,10 @@ func (abc *ABC) proposeTxs(l, m int) [][]byte {
 func (abc *ABC) FillBuffer(txs [][]byte) {
 	abc.Lock()
 	defer abc.Unlock()
+	for _, tx := range txs {
+		h := sha256.Sum256(tx)
+		abc.latency[h] = time.Now()
+	}
 	abc.buf = append(abc.buf, txs...)
 }
 

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TODO: set deadline for connection?
+// TODO: unlock before decode/encode (they have own lock)
 
 type NetworkHandler struct {
 	ips        map[int]string // Index -1 is the ip of the coin
@@ -71,7 +71,7 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
 			Origin:   origin,
 			Payload:  msg,
 		}
-		//log.Printf("Node %d UROUND %d %d -> %T", msg.Sender, m.UROUND, m.Origin, msg.Payload)
+		// log.Printf("Node %d UROUND %d %d -> %T", msg.Sender, m.UROUND, m.Origin, msg.Payload)
 		if p[3] != -1 {
 			// Send only to one node
 			go handler.send(m, p[3])
@@ -208,7 +208,6 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
 	var coinConnLock sync.Mutex
 	coinCall := func(msg *CoinRequest) byte {
 		coinConnLock.Lock()
-		defer coinConnLock.Unlock()
 
 		if coinConn == nil {
 			// Create a new connection and encoder
@@ -220,6 +219,7 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
 			enc := gob.NewEncoder(c)
 			coinConn = enc
 		}
+		coinConnLock.Unlock()
 		err := coinConn.Encode(msg)
 		if err != nil {
 			log.Printf("Node %d failed to send message to coin", id)
@@ -230,11 +230,11 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
 
 	// Receiver that assigns incoming messages to the correct channels
 	receiver := func() {
-		log.Printf("Starting receiver for node %d", id)
 		l, err := net.Listen("tcp", ips[id])
 		if err != nil {
 			log.Fatalf("Node %d was unable to start listener. %s", id, err)
 		}
+		// log.Printf("Starting receiver for node %d", id)
 		defer l.Close()
 
 		for {
