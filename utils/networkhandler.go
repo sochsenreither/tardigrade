@@ -237,8 +237,8 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int, rcfgs RoundConfigs)
 	// Receiver that assigns incoming messages to the correct channels
 	receiver := func() {
 		port := strings.Split(ips[id], ":")[1]
-		_ = "0.0.0.0:" + port
-		l, err := net.Listen("tcp", ips[id])
+		addr := "0.0.0.0:" + port
+		l, err := net.Listen("tcp", addr)
 		if err != nil {
 			log.Fatalf("Node %d was unable to start listener. %s", id, err)
 		}
