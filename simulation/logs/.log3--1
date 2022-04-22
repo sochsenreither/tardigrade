@@ -1,0 +1,15 @@
+12:34:24.864468 Node 3: starting round 0
+12:34:25.364586 Node 3: starting round 1
+12:34:25.865105 Node 3: starting round 2
+12:34:26.364965 Node 3: starting round 3
+12:34:26.865246 Node 3: starting round 4
+12:34:27.233178 Node 3 fin 0 with bla: 16 txs, latency: 2.368879472s, t_bla: 2.241863375s, t_acs: 110.216702ms, t_total: 2.368724321s
+12:34:27.749418 Node 3 fin 1 with bla: 16 txs, latency: 2.509797347s, t_bla: 2.241397807s, t_acs: 133.092731ms, t_total: 2.384870113s
+12:34:28.232076 Node 3 fin 2 with bla: 16 txs, latency: 3.242724498s, t_bla: 2.241561831s, t_acs: 123.542328ms, t_total: 2.367004376s
+12:34:28.729060 Node 3 fin 3 with bla: 16 txs, latency: 3.363138376s, t_bla: 2.241242549s, t_acs: 119.223697ms, t_total: 2.364128962s
+12:34:29.219165 Node 3 fin 4 with bla: 16 txs, latency: 3.187701513s, t_bla: 2.255992501s, t_acs: 88.858755ms, t_total: 2.353953937s
+12:34:29.219229 Node 3: exiting
+12:34:29.219334 Simulation ran for 4.354931699s
+12:34:29.219370 Total transactions: 80, txs/s: 18.37
+12:34:29.219390 Unique transactions: 24, Unique txs/s: 5.51
+12:34:29.219405 Bytes sent: 4453343

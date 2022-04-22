@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/gob"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,7 +48,9 @@ func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *Co
 
 	// Listens to incoming request on the network
 	listener := func(requestChan chan *utils.CoinRequest) {
-		log.Printf("Common coin starting to listen to port %s", ownIP)
+		port := strings.Split(ownIP, ":")[1]
+		addr := "0.0.0.0:" + port
+		log.Printf("Common coin starting to listen to port %s", addr)
 		l, err := net.Listen("tcp", ownIP)
 		if err != nil {
 			log.Fatalf("Coin wasn't able to start a listener. %s", err)
@@ -67,7 +70,7 @@ func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *Co
 					request := new(utils.CoinRequest)
 					err := dec.Decode(request)
 					if err != nil {
-						log.Printf("Coin wasn't able to decode message. %s", err)
+						// log.Printf("Coin wasn't able to decode message. %s", err)
 						continue
 					}
 					requestChan <- request
@@ -107,7 +110,7 @@ func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *Co
 		// log.Printf("Coin answering Node %d instance %d", i, req.Instance)
 		err := conns[i].Encode(handlerMsg)
 		if err != nil {
-			log.Printf("Coin wasn't able to encode message. %s", err)
+			//log.Printf("Coin wasn't able to encode message. %s", err)
 		}
 	}
 

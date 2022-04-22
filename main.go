@@ -3,25 +3,38 @@ package main
 import (
 	"encoding/gob"
 	"fmt"
+
+	"log"
 	"os"
+
 	"strconv"
+	"time"
 
 	aba "github.com/sochsenreither/upgrade/binaryagreement"
 	bla "github.com/sochsenreither/upgrade/blockagreement"
 	rbc "github.com/sochsenreither/upgrade/broadcast"
 	acs "github.com/sochsenreither/upgrade/commonsubset"
 	abc "github.com/sochsenreither/upgrade/upgrade"
+	"github.com/sochsenreither/upgrade/utils"
 
 	"github.com/sochsenreither/upgrade/simulation"
 )
 
 func main() {
 	args := os.Args
-	if len(args) != 2 {
-		fmt.Printf("Please provide a node id.\n")
+	if len(args) != 4 {
+		fmt.Printf("Arg 1: Start time at provided Second. Arg 2: Starting id. Arg 3: Ending id.\n")
 		os.Exit(1)
 	}
-	arg, err := strconv.Atoi(args[1])
+	startTime, err := strconv.Atoi(args[1])
+	if err != nil {
+		panic(err)
+	}
+	arg1, err := strconv.Atoi(args[2])
+	if err != nil {
+		panic(err)
+	}
+	arg2, err := strconv.Atoi(args[3])
 	if err != nil {
 		panic(err)
 	}
@@ -49,7 +62,69 @@ func main() {
 	gob.Register(&abc.PreBlockMessage{})
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
-	//simulation.RunNode(arg, 3, 0, 200, 1500, 2, 8)
-	_ = arg
-	simulation.RunNetwork()
+	// Delete old log
+	filename := fmt.Sprintf("simulation/logs/.log%s-%s", args[2], args[3])
+	os.Remove(filename)
+
+	// Write logs to file
+	if arg1 == arg2 && arg1 == -1 {
+		filename = "simulation/logs/.log-coin"
+	}
+	f, err := os.OpenFile(filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("error opening file: %v", err)
+	}
+	defer f.Close()
+
+	log.SetOutput(f)
+	log.SetFlags(log.Lmicroseconds)
+
+	//simulation.RunNodes(arg1, arg2, 3, 0, 6, 500, 2, 8)
+	_ = arg1
+	_ = arg2
+
+	t := time.Now()
+	if startTime < 0 {
+		startTime = t.Second()
+	}
+	start := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), startTime, 0, t.Location())
+	simulation.RunNode(arg1, 4, 1, 80, 500, 4, 8, start, makeConfig())
+
+	//simulation.KeySetup(8, 4)
+	//simulation.RunNetwork()
+}
+
+func makeConfig() *utils.SimulationConfig {
+	rounds := 5
+	rcfgs := make(utils.RoundConfigs)
+	cCfg := &utils.RoundConfig{
+		Ta: 1,
+		Ts: 1,
+		Crashed: map[int]bool{
+			3: true,
+		},
+		Async: true,
+	}
+
+	hCfg := &utils.RoundConfig{
+		Ta: 1,
+		Ts: 1,
+		Crashed: map[int]bool{
+			3: true,
+		},
+		Async: false,
+	}
+
+	for i := 0; i < 1; i++ {
+		rcfgs[i] = cCfg
+	}
+	for i := 1; i < rounds; i++ {
+		rcfgs[i] = hCfg
+	}
+
+
+	return &utils.SimulationConfig{
+		Rounds:    rounds,
+		RoundCfgs: rcfgs,
+	}
 }

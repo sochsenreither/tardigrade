@@ -1,0 +1,47 @@
+Setup done for node 2. Starting...
+Node 2 fin 0 with acs: 9 txs, latency: 2.650895111s, t_bla: 1.921397584s, t_acs: 715.034671ms, t_total: 2.649718718s
+Node 2 fin 1 with acs: 9 txs, latency: 3.105875838s, t_bla: 1.921394514s, t_acs: 682.192564ms, t_total: 2.60519311s
+Node 2 fin 2 with acs: 9 txs, latency: 2.856404357s, t_bla: 1.921640898s, t_acs: 683.498465ms, t_total: 2.606546131s
+Node 2 fin 3 with acs: 9 txs, latency: 3.442081445s, t_bla: 1.921314043s, t_acs: 684.706592ms, t_total: 2.607641846s
+Node 2 fin 4 with acs: 9 txs, latency: 4.618950334s, t_bla: 1.92250977s, t_acs: 692.929599ms, t_total: 2.618246012s
+ -------------------- 5 seconds ---------------------
+| Total transactions: 45, txs/s: 9
+| Unique transactions: 12, Unique txs/s: 2
+ ----------------------------------------------------
+Node 2 fin 5 with acs: 9 txs, latency: 4.812666297s, t_bla: 1.921580571s, t_acs: 686.323301ms, t_total: 2.611952204s
+Node 2 fin 6 with acs: 9 txs, latency: 3.535915392s, t_bla: 1.971242265s, t_acs: 646.593623ms, t_total: 2.619691808s
+Node 2 fin 7 with acs: 9 txs, latency: 4.779279402s, t_bla: 1.92341189s, t_acs: 686.287035ms, t_total: 2.612469657s
+Node 2 fin 8 with acs: 9 txs, latency: 4.522478044s, t_bla: 1.921027487s, t_acs: 696.700294ms, t_total: 2.622320211s
+Node 2 fin 9 with acs: 9 txs, latency: 5.773168065s, t_bla: 1.924654343s, t_acs: 680.38546ms, t_total: 2.606304389s
+Node 2 fin 10 with acs: 9 txs, latency: 4.869127226s, t_bla: 1.925147839s, t_acs: 690.900402ms, t_total: 2.618358977s
+Node 2 fin 11 with acs: 9 txs, latency: 8.103512619s, t_bla: 1.92024373s, t_acs: 680.907865ms, t_total: 2.602977153s
+Node 2 fin 12 with acs: 9 txs, latency: 5.10454126s, t_bla: 1.920579523s, t_acs: 679.515491ms, t_total: 2.605131518s
+Node 2 fin 13 with acs: 9 txs, latency: 5.322947096s, t_bla: 1.92130085s, t_acs: 698.719194ms, t_total: 2.622890177s
+Node 2 fin 14 with acs: 9 txs, latency: 8.36060313s, t_bla: 1.921926496s, t_acs: 685.4331ms, t_total: 2.609912183s
+ -------------------- 10 seconds ---------------------
+| Total transactions: 135, txs/s: 13
+| Unique transactions: 53, Unique txs/s: 5
+ ----------------------------------------------------
+Node 2 fin 15 with acs: 9 txs, latency: 5.867800416s, t_bla: 1.921519339s, t_acs: 692.054726ms, t_total: 2.617490601s
+Node 2 fin 16 with acs: 9 txs, latency: 5.213693172s, t_bla: 1.921310338s, t_acs: 688.358464ms, t_total: 2.613601472s
+Node 2 fin 17 with acs: 9 txs, latency: 5.113148437s, t_bla: 1.922311256s, t_acs: 688.373692ms, t_total: 2.613575136s
+Node 2 fin 18 with acs: 9 txs, latency: 11.353075387s, t_bla: 1.922113585s, t_acs: 678.685333ms, t_total: 2.603198695s
+Node 2 fin 19 with acs: 9 txs, latency: 8.279528318s, t_bla: 1.921386245s, t_acs: 688.427086ms, t_total: 2.611732341s
+Node 2 fin 20 with acs: 9 txs, latency: 5.938993935s, t_bla: 1.920377046s, t_acs: 683.003303ms, t_total: 2.605974987s
+Node 2 fin 21 with acs: 9 txs, latency: 3.611559952s, t_bla: 1.920696682s, t_acs: 689.336311ms, t_total: 2.611796875s
+Node 2 fin 22 with acs: 9 txs, latency: 5.351863824s, t_bla: 1.921943282s, t_acs: 676.986113ms, t_total: 2.600977047s
+Node 2 fin 23 with acs: 9 txs, latency: 12.482863262s, t_bla: 1.921554336s, t_acs: 683.873382ms, t_total: 2.607454182s
+Node 2 fin 24 with acs: 9 txs, latency: 8.481548458s, t_bla: 1.922457693s, t_acs: 682.203209ms, t_total: 2.606844963s
+ -------------------- 15 seconds ---------------------
+| Total transactions: 225, txs/s: 15
+| Unique transactions: 94, Unique txs/s: 6
+ ----------------------------------------------------
+Node 2 fin 25 with acs: 9 txs, latency: 8.516825807s, t_bla: 1.921331949s, t_acs: 692.155305ms, t_total: 2.617310821s
+Node 2 fin 26 with acs: 9 txs, latency: 6.883197494s, t_bla: 1.921333653s, t_acs: 710.568629ms, t_total: 2.633720309s
+Node 2 fin 27 with acs: 9 txs, latency: 8.525518189s, t_bla: 1.921760798s, t_acs: 688.581853ms, t_total: 2.624706527s
+Node 2 fin 28 with acs: 9 txs, latency: 4.135601958s, t_bla: 1.921521761s, t_acs: 696.486977ms, t_total: 2.63533193s
+Node 2 fin 29 with acs: 9 txs, latency: 7.236456483s, t_bla: 1.920295409s, t_acs: 716.476638ms, t_total: 2.653396804s
+Simulation ran for 17.153922951s
+Total transactions: 270, txs/s: 15.74
+Unique transactions: 118, Unique txs/s: 6.88
+Bytes sent: 5889718

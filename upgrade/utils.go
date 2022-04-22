@@ -45,15 +45,10 @@ func NewTcs(keyShare *tcrsa.KeyShare, keyMeta, keyMetaCommittee *tcrsa.KeyMeta, 
 	return tcs
 }
 
-type RoundConfig struct {
-	Ta      int
-	Ts      int
-	Crashed map[int]bool // NodeId -> crashed
-}
 
 type ABCConfig struct {
 	n            int                 // Number of nodes
-	nodeId       int                 // Id of node
+	NodeId       int                 // Id of node
 	ta           int                 // Number of maximum faulty nodes (async)
 	ts           int                 // Number of maximum faulty nodes (sync)
 	tk           int                 // Threshold for distinct committee messages
@@ -70,7 +65,7 @@ type ABCConfig struct {
 func NewABCConfig(n, nodeId, ta, ts, kappa, delta, lambda, epsilon, txSize int, committee map[int]bool, leaderFunc func(r, n int) int, handlerFuncs *utils.HandlerFuncs) *ABCConfig {
 	return &ABCConfig{
 		n:            n,
-		nodeId:       nodeId,
+		NodeId:       nodeId,
 		ta:           ta,
 		ts:           ts,
 		kappa:        kappa,
@@ -85,7 +80,7 @@ func NewABCConfig(n, nodeId, ta, ts, kappa, delta, lambda, epsilon, txSize int, 
 }
 
 func setupBLA(UROUND int, cfg *ABCConfig, tcs *tcs, ts int) *bla.BlockAgreement {
-	return bla.NewBlockAgreement(UROUND, cfg.n, cfg.nodeId, ts, cfg.kappa, nil, tcs.sigSk, tcs.keyMeta, cfg.leaderFunc, cfg.delta, cfg.handlerFuncs)
+	return bla.NewBlockAgreement(UROUND, cfg.n, cfg.NodeId, ts, cfg.kappa, nil, tcs.sigSk, tcs.keyMeta, cfg.leaderFunc, cfg.delta, cfg.handlerFuncs)
 }
 
 func setupACS(UROUND int, cfg *ABCConfig, tcs *tcs, ta int) *acs.CommonSubset {
@@ -93,7 +88,7 @@ func setupACS(UROUND int, cfg *ABCConfig, tcs *tcs, ta int) *acs.CommonSubset {
 	abas := setupABA(UROUND, cfg, tcs, ta)
 	config := &acs.ACSConfig{
 		N:       cfg.n,
-		NodeId:  cfg.nodeId,
+		NodeId:  cfg.NodeId,
 		T:       ta,
 		Kappa:   cfg.kappa,
 		Epsilon: cfg.epsilon,
@@ -106,7 +101,7 @@ func setupACS(UROUND int, cfg *ABCConfig, tcs *tcs, ta int) *acs.CommonSubset {
 		KeyMetaC: tcs.keyMetaC,
 		SkC:      nil,
 	}
-	if cfg.committee[cfg.nodeId] {
+	if cfg.committee[cfg.NodeId] {
 		t.SkC = tcs.committeeKeys.sigSk
 	}
 	a := acs.NewACS(config, cfg.committee, nil, rbcs, abas, t, cfg.handlerFuncs)
@@ -124,7 +119,7 @@ func setupRBC(UROUND int, cfg *ABCConfig, tcs *tcs, ta int) []*rbc.ReliableBroad
 		config := &rbc.ReliableBroadcastConfig{
 			UROUND:   UROUND,
 			N:        cfg.n,
-			NodeId:   cfg.nodeId,
+			NodeId:   cfg.NodeId,
 			T:        ta,
 			Kappa:    cfg.kappa,
 			Epsilon:  cfg.epsilon,
@@ -144,7 +139,7 @@ func setupABA(UROUND int, cfg *ABCConfig, tcs *tcs, ta int) []*aba.BinaryAgreeme
 	}
 	abas := make([]*aba.BinaryAgreement, cfg.n)
 	for i := 0; i < cfg.n; i++ {
-		abas[i] = aba.NewBinaryAgreement(UROUND, cfg.n, cfg.nodeId, ta, -1, i, tc, cfg.handlerFuncs)
+		abas[i] = aba.NewBinaryAgreement(UROUND, cfg.n, cfg.NodeId, ta, -1, i, tc, cfg.handlerFuncs)
 	}
 	return abas
 }

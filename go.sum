@@ -2,3 +2,5 @@ github.com/niclabs/tcpaillier v0.0.7 h1:ArGRwPW6bAhMhBK7L5L1MDRQWLztO2RK8z030XOa
 github.com/niclabs/tcpaillier v0.0.7/go.mod h1:PnZgJxcHZFSuXo6oSK6kMABkChr9URTmmGLNjgjkbNs=
 github.com/niclabs/tcrsa v0.0.5 h1:QgS3DOhBBlhNloRif7M1DLhEkgijEedcx3G2IYXcUWw=
 github.com/niclabs/tcrsa v0.0.5/go.mod h1:ratVlzSF2LkdYLmDDvqwmpQFtHbyZIWTa1J02Ogxw+A=
+golang.org/x/text v0.3.7 h1:olpwvP2KacW1ZWvsR7uQhoyTYvKAupfQrRGBFM352Gk=
+golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=

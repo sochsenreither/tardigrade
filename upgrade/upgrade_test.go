@@ -54,7 +54,7 @@ func simpleTestInstance(n int) *ABC {
 	committee[0] = true
 	cfg := &ABCConfig{
 		n:         1,
-		nodeId:    0,
+		NodeId:    0,
 		ta:        0,
 		tk:        0,
 		kappa:     0,
@@ -62,7 +62,7 @@ func simpleTestInstance(n int) *ABC {
 		committee: committee,
 	}
 	u := &ABC{
-		cfg: cfg,
+		Cfg: cfg,
 		acss: nil,
 		blas: nil,
 		tcs: nil,
@@ -99,8 +99,8 @@ func TestSimpleTest(t *testing.T) {
 	fmt.Println("Setup done, starting simulation...")
 	var wg sync.WaitGroup
 	wg.Add(cfg.n - cfg.ta)
-	cfgs := make(map[int]*RoundConfig)
-	hCfg := &RoundConfig{
+	cfgs := make(map[int]*utils.RoundConfig)
+	hCfg := &utils.RoundConfig{
 		Ta: 0,
 		Ts: 0,
 		Crashed: map[int]bool{},
@@ -183,7 +183,7 @@ func setupSimulation(cfg *testConfig) []*ABC {
 		}
 		c := &ABCConfig{
 			n:          cfg.n,
-			nodeId:     i,
+			NodeId:     i,
 			ta:         cfg.ta,
 			ts:         cfg.ts,
 			tk:         -1,

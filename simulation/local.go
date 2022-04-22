@@ -1,32 +1,14 @@
 package simulation
 
 import (
-	"crypto"
-	"crypto/sha256"
-	"encoding/gob"
 	"fmt"
-	"math/rand"
-	"os"
-	"strconv"
 	"time"
 
-	"github.com/niclabs/tcpaillier"
-	"github.com/niclabs/tcrsa"
 	"github.com/sochsenreither/upgrade/utils"
 
 	aba "github.com/sochsenreither/upgrade/binaryagreement"
 	abc "github.com/sochsenreither/upgrade/upgrade"
 )
-
-type Keys struct {
-	KeyShares         tcrsa.KeyShareList
-	KeyMeta           *tcrsa.KeyMeta
-	KeySharesCommitte tcrsa.KeyShareList
-	KeyMetaCommittee  *tcrsa.KeyMeta
-	Pk                *tcpaillier.PubKey
-	DecryptionShares  []*tcpaillier.KeyShare
-	Proofs            []*tcrsa.SigShare
-}
 
 func RunLocal() {
 	local(6, 0, 20, 150, 2, 8)
@@ -38,10 +20,10 @@ func local(n, t, delta, lambda, kappa, txSize int) {
 	// run ABCs
 	maxRounds := 1
 	abcs := setupLocalSimulation(n, t, delta, lambda, kappa, txSize)
-	rcfgs := make(map[int]*abc.RoundConfig)
-	hCfg := &abc.RoundConfig{
-		Ta: 0,
-		Ts: 0,
+	rcfgs := make(map[int]*utils.RoundConfig)
+	hCfg := &utils.RoundConfig{
+		Ta:      0,
+		Ts:      0,
 		Crashed: map[int]bool{},
 	}
 
@@ -131,115 +113,4 @@ func setupLocalSimulation(n, t, delta, lambda, kappa, txSize int) []*abc.ABC {
 		}
 	}
 	return abcs
-}
-
-func setupKeys(n, kappa int) *Keys {
-	// If a file containing keys exists use that file
-	filename := fmt.Sprintf("simulation/keys/keys-%d-%d", n, kappa)
-	if fileExists(filename) {
-		f, err := os.Open(filename)
-		if err != nil {
-			panic(err)
-		}
-		keys := new(Keys)
-		dec := gob.NewDecoder(f)
-		dec.Decode(keys)
-		f.Close()
-		return keys
-	}
-	// Setup signature scheme
-	keyShares, keyMeta, err := tcrsa.NewKey(512, uint16(n/2+1), uint16(n), nil)
-	if err != nil {
-		panic(err)
-	}
-
-	keySharesCommittee, keyMetaCommittee, err := tcrsa.NewKey(512, uint16(kappa/2+1), uint16(kappa), nil)
-	if err != nil {
-		panic(err)
-	}
-
-	keySize := 128
-
-	// Setup encryption scheme
-	decryptionShares, pk, err := tcpaillier.NewKey(keySize, 1, uint8(kappa), uint8(kappa/2+1))
-	if err != nil {
-		panic(err)
-	}
-
-	// Setup proofs on nodeId (Dealer is node 0)
-	proofs := make([]*tcrsa.SigShare, n)
-	for i := 0; i < n; i++ {
-		hash := sha256.Sum256([]byte(strconv.Itoa(i)))
-		paddedHash, _ := tcrsa.PrepareDocumentHash(keyMeta.PublicKey.Size(), crypto.SHA256, hash[:])
-		sig, err := keyShares[0].Sign(paddedHash, crypto.SHA256, keyMeta)
-		if err != nil {
-			panic(err)
-		}
-		proofs[i] = sig
-	}
-
-	keys := &Keys{
-		KeyShares:         keyShares,
-		KeyMeta:           keyMeta,
-		KeySharesCommitte: keySharesCommittee,
-		KeyMetaCommittee:  keyMetaCommittee,
-		Pk:                pk,
-		DecryptionShares:  decryptionShares,
-		Proofs:            proofs,
-	}
-
-	// Write keys to file
-	f, err := os.Create(filename)
-	if err != nil {
-		panic(err)
-	}
-	enc := gob.NewEncoder(f)
-	enc.Encode(keys)
-	f.Close()
-
-	return keys
-}
-
-func randomTransactions(n, txSize, scale int) [][]byte {
-	bufsize := n * scale
-	buf := make([][]byte, bufsize)
-	for i := 0; i < bufsize; i++ {
-		token := make([]byte, txSize)
-		rand.Read(token)
-		// fmt.Printf("Generated tx: %x\n", token)
-		buf[i] = token
-	}
-	return buf
-}
-
-func fileExists(filename string) bool {
-	info, err := os.Stat(filename)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return !info.IsDir()
-}
-
-func uniqueTransactions(blocks map[int]*utils.Block, txs map[[32]byte]int, txSize int) {
-	for _, block := range blocks {
-		for _, transactions := range block.Txs {
-			//fmt.Printf("TX: %x\n", transactions)
-			var tx [][]byte
-			for i := 0; i < len(transactions); i += txSize {
-				end := i + txSize
-
-				if end > len(transactions) {
-					end = len(transactions)
-				}
-				tx = append(tx, transactions[i:end])
-			}
-			for _, t := range tx {
-				h := sha256.Sum256(t)
-				txs[h]++
-				if txs[h] > 1 {
-					//fmt.Printf("Multiple tx: %x - %d\n", t, txs[h])
-				}
-			}
-		}
-	}
 }

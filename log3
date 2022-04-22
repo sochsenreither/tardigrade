@@ -1,0 +1,17 @@
+Setup done for node 3. Starting...
+ -------------------- 5 seconds ---------------------
+| Total transactions: 0, txs/s: 0
+| Unique transactions: 0, Unique txs/s: 0
+ ----------------------------------------------------
+ -------------------- 10 seconds ---------------------
+| Total transactions: 0, txs/s: 0
+| Unique transactions: 0, Unique txs/s: 0
+ ----------------------------------------------------
+ -------------------- 15 seconds ---------------------
+| Total transactions: 0, txs/s: 0
+| Unique transactions: 0, Unique txs/s: 0
+ ----------------------------------------------------
+Simulation ran for 15.000630685s
+Total transactions: 0, txs/s: 0.00
+Unique transactions: 0, Unique txs/s: 0.00
+Bytes sent: 0

@@ -1,14 +1,15 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/gob"
 	"log"
+	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 )
-
-// TODO: unlock before decode/encode (they have own lock)
 
 type NetworkHandler struct {
 	ips        map[int]string // Index -1 is the ip of the coin
@@ -16,6 +17,8 @@ type NetworkHandler struct {
 	Funcs      *HandlerFuncs
 	Chans      *HandlerChans
 	sync.Mutex // Use this lock when interacting with conns
+	bytesSent  int
+	bytesLock  sync.Mutex
 }
 
 type connection struct {
@@ -23,7 +26,7 @@ type connection struct {
 	enc  *gob.Encoder
 }
 
-func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
+func NewNetworkHandler(ips map[int]string, id, n, kappa int, rcfgs RoundConfigs) *NetworkHandler {
 	// Create local channels. The handler will forward incoming messages to the correct local
 	// channels.
 	rbcChans := make(map[int][]chan *Message)          // UROUND -> instance
@@ -51,9 +54,11 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
 
 	conns := make(map[int]*connection)
 	handler := &NetworkHandler{
-		ips:   ips,
-		conns: conns,
-		Chans: handlerChans,
+		ips:       ips,
+		conns:     conns,
+		Chans:     handlerChans,
+		bytesSent: 0,
+		bytesLock: sync.Mutex{},
 	}
 
 	// Create multicast and receive functions for communication with other nodes.
@@ -71,13 +76,14 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
 			Origin:   origin,
 			Payload:  msg,
 		}
-		// log.Printf("Node %d UROUND %d %d -> %T", msg.Sender, m.UROUND, m.Origin, msg.Payload)
+		//log.Printf("Node %d UROUND %d %d -> %T\n", msg.Sender, m.UROUND, m.Origin, msg.Payload)
 		if p[3] != -1 {
 			// Send only to one node
-			go handler.send(m, p[3])
+			//fmt.Println(m.UROUND, rcfgs[m.UROUND])
+			go handler.send(m, p[3], rcfgs[m.UROUND].Async, rcfgs[m.UROUND].Crashed[p[3]])
 		} else {
 			for i := 0; i < n; i++ {
-				go handler.send(m, i)
+				go handler.send(m, i, rcfgs[m.UROUND].Async, rcfgs[m.UROUND].Crashed[i])
 			}
 		}
 	}
@@ -230,6 +236,8 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
 
 	// Receiver that assigns incoming messages to the correct channels
 	receiver := func() {
+		port := strings.Split(ips[id], ":")[1]
+		_ = "0.0.0.0:" + port
 		l, err := net.Listen("tcp", ips[id])
 		if err != nil {
 			log.Fatalf("Node %d was unable to start listener. %s", id, err)
@@ -267,7 +275,27 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int) *NetworkHandler {
 	return handler
 }
 
-func (h *NetworkHandler) send(msg *HandlerMessage, i int) {
+func (h *NetworkHandler) BytesSent() int {
+	h.bytesLock.Lock()
+	defer h.bytesLock.Unlock()
+	return h.bytesSent
+}
+
+func (h *NetworkHandler) incrementBytes(n int) {
+	h.bytesLock.Lock()
+	defer h.bytesLock.Unlock()
+	h.bytesSent += n
+}
+
+func (h *NetworkHandler) send(msg *HandlerMessage, i int, delay bool, crashed bool) {
+	if delay {
+		r := rand.Intn(300) + 50
+		time.Sleep(time.Duration(r) * time.Millisecond)
+	}
+	if crashed {
+		return
+	}
+
 	h.Lock()
 	defer h.Unlock()
 
@@ -284,6 +312,12 @@ func (h *NetworkHandler) send(msg *HandlerMessage, i int) {
 		}
 		h.conns[i] = connection
 	}
+	go func() {
+		buf := new(bytes.Buffer)
+		e := gob.NewEncoder(buf)
+		e.Encode(msg)
+		h.incrementBytes(buf.Len())
+	}()
 	err := h.conns[i].enc.Encode(msg)
 	if err != nil {
 		log.Printf("Node %d failed to send message to %d", msg.Payload.Sender, i)
