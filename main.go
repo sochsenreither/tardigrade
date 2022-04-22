@@ -88,16 +88,39 @@ func main() {
 		startTime = t.Second()
 	}
 	start := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), startTime, 0, t.Location())
-	simulation.RunNode(arg1, 4, 1, 80, 500, 4, 8, start, makeConfig())
+	simulation.RunNode(arg1, 3, 1, 1, 100, 3, 8, start, syncNoCrash())
 
 	//simulation.KeySetup(8, 4)
 	//simulation.RunNetwork()
 }
 
-func makeConfig() *utils.SimulationConfig {
-	rounds := 5
+func syncNoCrash() *utils.SimulationConfig {
+	// No crash and a synchronous network
+
+	rounds := 500
 	rcfgs := make(utils.RoundConfigs)
-	cCfg := &utils.RoundConfig{
+	syncCfg := &utils.RoundConfig{
+		Ta: 0,
+		Ts: 0,
+		Crashed: map[int]bool{
+		},
+		Async: false,
+	}
+	for i := 0; i < rounds; i++ {
+		rcfgs[i] = syncCfg
+	}
+
+	return &utils.SimulationConfig{
+		Rounds:    rounds,
+		RoundCfgs: rcfgs,
+	}
+}
+
+func asyncOneCrash() *utils.SimulationConfig {
+	// One node crashed, network switches between sync and async
+	rounds := 500
+	rcfgs := make(utils.RoundConfigs)
+	asyncCfg := &utils.RoundConfig{
 		Ta: 1,
 		Ts: 1,
 		Crashed: map[int]bool{
@@ -105,8 +128,7 @@ func makeConfig() *utils.SimulationConfig {
 		},
 		Async: true,
 	}
-
-	hCfg := &utils.RoundConfig{
+	syncCfg := &utils.RoundConfig{
 		Ta: 1,
 		Ts: 1,
 		Crashed: map[int]bool{
@@ -115,13 +137,30 @@ func makeConfig() *utils.SimulationConfig {
 		Async: false,
 	}
 
-	for i := 0; i < 1; i++ {
-		rcfgs[i] = cCfg
+	for i := 0; i < 50; i++ {
+		rcfgs[i] = syncCfg
 	}
-	for i := 1; i < rounds; i++ {
-		rcfgs[i] = hCfg
+	for i := 50; i < 100; i++ {
+		rcfgs[i] = asyncCfg
 	}
-
+	for i := 100; i < 150; i++ {
+		rcfgs[i] = syncCfg
+	}
+	for i := 150; i < 200; i++ {
+		rcfgs[i] = asyncCfg
+	}
+	for i := 200; i < 250; i++ {
+		rcfgs[i] = syncCfg
+	}
+	for i := 300; i < 350; i++ {
+		rcfgs[i] = asyncCfg
+	}
+	for i := 400; i < 450; i++ {
+		rcfgs[i] = syncCfg
+	}
+	for i := 450; i < rounds; i++ {
+		rcfgs[i] = asyncCfg
+	}
 
 	return &utils.SimulationConfig{
 		Rounds:    rounds,
