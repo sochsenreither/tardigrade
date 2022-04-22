@@ -51,7 +51,7 @@ func NewNetworkCommonCoin(n int, keyMeta *tcrsa.KeyMeta, ips map[int]string) *Co
 		port := strings.Split(ownIP, ":")[1]
 		addr := "0.0.0.0:" + port
 		log.Printf("Common coin starting to listen to port %s", addr)
-		l, err := net.Listen("tcp", ownIP)
+		l, err := net.Listen("tcp", addr)
 		if err != nil {
 			log.Fatalf("Coin wasn't able to start a listener. %s", err)
 		}

@@ -248,7 +248,7 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int, rcfgs RoundConfigs)
 		for {
 			c, err := l.Accept()
 			if err != nil {
-				log.Printf("Node %d got err while establishing connection. %s", id, err)
+				//log.Printf("Node %d got err while establishing connection. %s", id, err)
 				continue
 			}
 			go handlerChans.listener(id, n, kappa, c)
