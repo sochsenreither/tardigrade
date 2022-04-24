@@ -63,8 +63,8 @@ func main() {
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
 	// Delete old log
-	n := 10
-	delta := 85
+	n := 20
+	delta := 200
 	lambda := 450
 	kappa := 2
 	txSize := 8
@@ -86,7 +86,7 @@ func main() {
 	}
 	defer f.Close()
 
-	log.SetOutput(f)
+	// log.SetOutput(f)
 	log.SetFlags(log.Lmicroseconds)
 
 	log.Printf("Parameters: nodes: %d delta: %d lambda: %d kappa: %d txSize: %d", n, delta, lambda, kappa, txSize)
@@ -98,15 +98,9 @@ func main() {
 	if startTime < 0 {
 		startTime = t.Second()
 	}
-	simulation.KeySetup(30, 30)
-	simulation.KeySetup(200, 200)
-	panic("")
-	cfg := utils.CrashesChangingNetworkCfg(n, 3, rounds)
+	rounds = 1
+	cfg := utils.SyncNoCrashes(rounds)
 
 	start := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), startTime, 0, t.Location())
 	simulation.RunNodes(arg1, arg2, n, 0, delta, lambda, kappa, txSize, start, cfg)
-	//simulation.RunNode(arg1, 2, 0, 1, 100, 2, 8, start, syncNoCrash())
-
-	//simulation.KeySetup(8, 4)
-	//simulation.RunNetwork(start, syncNoCrash())
 }
