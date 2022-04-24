@@ -63,10 +63,10 @@ func main() {
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
 	// Delete old log
-	n := 12
-	delta := 200
+	n := 20
+	delta := 800
 	lambda := 400
-	kappa := 12
+	kappa := 2
 	txSize := 8
 	// Runtime is 120s
 	rounds := 120_000/lambda
@@ -98,7 +98,7 @@ func main() {
 	if startTime < 0 {
 		startTime = t.Second()
 	}
-	rounds = 3
+	rounds = 1
 	cfg := utils.SyncNoCrashes(rounds)
 
 	start := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), startTime, 0, t.Location())
