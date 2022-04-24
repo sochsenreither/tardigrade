@@ -185,6 +185,7 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 		blocksReceived := make(map[[32]byte]map[int]*tcrsa.SigShare)
 		for {
 			msg := abc.receive(r)
+			log.Printf("Received message from %d", msg.Sender)
 			switch m := msg.Payload.(type) {
 			case *BlockMessage:
 				if m.Status == "large" && abc.Cfg.committee[abc.Cfg.NodeId] {
@@ -236,7 +237,7 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 
 	mu.Lock()
 	if readySmall && ptr != nil {
-		log.Printf("Node %d: starting BLA in round %d", abc.Cfg.NodeId, r)
+		// log.Printf("Node %d: starting BLA in round %d", abc.Cfg.NodeId, r)
 		bs := utils.NewBlockShare(smallPb, ptr)
 		mu.Unlock()
 		abc.blas[r].SetInput(bs)
@@ -256,19 +257,19 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 
 	if abc.isWellFormedBlockShare(blaOutput) {
 		// If blaOutput is well-formed, input it to ACS
-		log.Printf("Node %d round %d: Running ACS with BLA output", abc.Cfg.NodeId, r)
+		// log.Printf("Node %d round %d: Running ACS with BLA output", abc.Cfg.NodeId, r)
 		start = time.Now()
 		abc.acss[r].SetInput(blaOutput)
 		abc.acss[r].Run()
 	} else {
 		// Else wait until ready is true and pointer != nil and input that to ACS
-		log.Printf("Node %d round %d: Waiting for blocks", abc.Cfg.NodeId, r)
+		// log.Printf("Node %d round %d: Waiting for blocks", abc.Cfg.NodeId, r)
 		<-readyChan
 		<-ptrChan
 		mu.Lock()
 		bs := utils.NewBlockShare(smallPb, ptr)
 		mu.Unlock()
-		log.Printf("Node %d round %d: Running ACS after failed BLA", abc.Cfg.NodeId, r)
+		// log.Printf("Node %d round %d: Running ACS after failed BLA", abc.Cfg.NodeId, r)
 		start = time.Now()
 		abc.acss[r].SetInput(bs)
 		go abc.acss[r].Run()
