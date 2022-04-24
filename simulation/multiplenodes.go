@@ -77,7 +77,10 @@ func RunNodes(startId, endId, n, t, delta, lambda, kappa, txSize int, startTime 
 			}
 			p := message.NewPrinter(language.English)
 			p.Printf("Bytes sent: %d\n", totalBytes)
-			for i := 0; i < endId-startId; i++ {
+			for i := startId; i < endId; i++ {
+				if totalTxs == 0 {
+					continue
+				}
 				p.Printf("Bytes sent by node %d: %d. B/tx: %d\n", i, handlers[i].BytesSent(), handlers[i].BytesSent()/totalTxs)
 				log.Printf("Bytes sent by Node %d: %d", i, handlers[i].BytesSent())
 			}

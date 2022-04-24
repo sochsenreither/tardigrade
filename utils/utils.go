@@ -2,9 +2,9 @@ package utils
 
 import (
 	"encoding/gob"
-	"log"
 	"net"
 	"sync"
+	"time"
 )
 
 type HandlerFuncs struct {
@@ -124,7 +124,8 @@ func (h *HandlerChans) listener(id, n, kappa int, c net.Conn) {
 		err := dec.Decode(msg)
 
 		if err != nil {
-			log.Printf("Node %d got err while establishing connection. %s", id, err)
+			//log.Printf("Node %d got err while establishing connection. %s", id, err)
+			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 

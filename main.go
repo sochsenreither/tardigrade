@@ -67,12 +67,12 @@ func main() {
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
 	// Delete old log
-	n := 10
-	lambda := 1000
+	n := 4
+	lambda := 400
 	kappa := 2
 	txSize := 8
-	// Runtime is 120s
-	rounds := 120_000/lambda
+	// Runtime is 60s
+	rounds := 60_000 / lambda
 	if kappa > n {
 		kappa = n
 	}
@@ -92,7 +92,8 @@ func main() {
 	//log.SetOutput(f)
 	log.SetFlags(log.Lmicroseconds)
 
-	log.Printf("Parameters: nodes: %d delta: %d lambda: %d kappa: %d txSize: %d", n, delta, lambda, kappa, txSize)
+	log.Printf("Parameters: nodes: %d delta: %d lambda: %d kappa: %d txSize: %d rounds: %d", n, delta, lambda, kappa, txSize, rounds)
+	fmt.Printf("Parameters: nodes: %d delta: %d lambda: %d kappa: %d txSize: %d rounds: %d", n, delta, lambda, kappa, txSize, rounds)
 
 	_ = arg1
 	_ = arg2
@@ -101,8 +102,8 @@ func main() {
 	if startTime < 0 {
 		startTime = t.Second()
 	}
-	rounds = 1
-	cfg := utils.SyncNoCrashes(rounds)
+
+	cfg := utils.CrashCfg(n, 1, rounds, true)
 
 	start := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), startTime, 0, t.Location())
 	simulation.RunNodes(arg1, arg2, n, 0, delta, lambda, kappa, txSize, start, cfg)
