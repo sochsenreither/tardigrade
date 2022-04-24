@@ -63,9 +63,9 @@ func main() {
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
 	// Delete old log
-	n := 20
-	delta := 800
-	lambda := 400
+	n := 10
+	delta := 500
+	lambda := 1000
 	kappa := 2
 	txSize := 8
 	// Runtime is 120s
@@ -102,9 +102,9 @@ func main() {
 	cfg := utils.SyncNoCrashes(rounds)
 
 	start := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), startTime, 0, t.Location())
-	simulation.RunNodes(arg1, arg2, n, 0, delta, lambda, kappa, txSize, start, cfg)
+	//simulation.RunNodes(arg1, arg2, n, 0, delta, lambda, kappa, txSize, start, cfg)
 	//simulation.RunNode(arg1, 2, 0, 1, 100, 2, 8, start, syncNoCrash())
 
 	//simulation.KeySetup(8, 4)
-	//simulation.RunNetwork(start, syncNoCrash())
+	simulation.RunNetwork(start, cfg)
 }

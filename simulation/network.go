@@ -10,7 +10,7 @@ import (
 )
 
 func RunNetwork(startTime time.Time, cfg *utils.SimulationConfig) {
-	networkSimulation(10, 1, 55000, 3, 8, cfg, startTime)
+	networkSimulation(19, 1, 500, 3, 8, cfg, startTime)
 }
 
 func networkSimulation(n, delta, lambda, kappa, txSize int, cfg *utils.SimulationConfig, startTime time.Time) {
@@ -45,7 +45,7 @@ func networkSimulation(n, delta, lambda, kappa, txSize int, cfg *utils.Simulatio
 
 	// fill bufs at certain interval
 	statsTicker := time.NewTicker(3 * time.Second) // Ticker for stats
-	ticks := 1
+	//ticks := 1
 	txs := make(map[[32]byte]int) // Maps h(tx) -> count
 	for {
 		select {
@@ -73,20 +73,20 @@ func networkSimulation(n, delta, lambda, kappa, txSize int, cfg *utils.Simulatio
 			}
 			return
 		case <-statsTicker.C:
-			// if rounds != -1 {
-			// 	break
+			// // if rounds != -1 {
+			// // 	break
+			// // }
+			// blocks := abcs[0].GetBlocks()
+			// totalTxs := 0
+			// for _, block := range blocks {
+			// 	totalTxs += block.TxsCount
 			// }
-			blocks := abcs[0].GetBlocks()
-			totalTxs := 0
-			for _, block := range blocks {
-				totalTxs += block.TxsCount
-			}
-			uniqueTransactions(blocks, txs, txSize)
-			fmt.Printf(" -------------------- %d seconds ---------------------\n", ticks*5)
-			fmt.Printf("| Total transactions: %d, txs/s: %d. Latency: %s\n", totalTxs, totalTxs/(ticks*3), abcs[0].LatencyTotal/time.Duration(abcs[0].FinishedRounds))
-			fmt.Printf("| Unique transactions: %d, Unique txs/s: %d\n", len(txs), len(txs)/(ticks*3))
-			fmt.Printf(" ----------------------------------------------------\n")
-			ticks++
+			// uniqueTransactions(blocks, txs, txSize)
+			// fmt.Printf(" -------------------- %d seconds ---------------------\n", ticks*5)
+			// fmt.Printf("| Total transactions: %d, txs/s: %d. Latency: %s\n", totalTxs, totalTxs/(ticks*3), abcs[0].LatencyTotal/time.Duration(abcs[0].FinishedRounds))
+			// fmt.Printf("| Unique transactions: %d, Unique txs/s: %d\n", len(txs), len(txs)/(ticks*3))
+			// fmt.Printf(" ----------------------------------------------------\n")
+			// ticks++
 		case <-bufTicker.C:
 			for i := range abcs {
 				abcs[i].FillBuffer(randomTransactions(n, txSize, 3))
