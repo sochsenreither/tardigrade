@@ -185,7 +185,6 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 		blocksReceived := make(map[[32]byte]map[int]*tcrsa.SigShare)
 		for {
 			msg := abc.receive(r)
-			log.Printf("Received message from %d", msg.Sender)
 			switch m := msg.Payload.(type) {
 			case *BlockMessage:
 				if m.Status == "large" && abc.Cfg.committee[abc.Cfg.NodeId] {

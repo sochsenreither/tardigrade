@@ -63,10 +63,10 @@ func main() {
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
 	// Delete old log
-	n := 20
+	n := 12
 	delta := 200
-	lambda := 10000
-	kappa := 2
+	lambda := 400
+	kappa := 12
 	txSize := 8
 	// Runtime is 120s
 	rounds := 120_000/lambda
