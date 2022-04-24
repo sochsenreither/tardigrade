@@ -79,7 +79,6 @@ func NewNetworkHandler(ips map[int]string, id, n, kappa int, rcfgs RoundConfigs)
 		//log.Printf("Node %d UROUND %d %d -> %T\n", msg.Sender, m.UROUND, m.Origin, msg.Payload)
 		if p[3] != -1 {
 			// Send only to one node
-			//fmt.Println(m.UROUND, rcfgs[m.UROUND])
 			go handler.send(m, p[3], rcfgs[m.UROUND].Async, rcfgs[m.UROUND].Crashed[p[3]])
 		} else {
 			for i := 0; i < n; i++ {

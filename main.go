@@ -63,7 +63,17 @@ func main() {
 	gob.Register(&abc.PbDecryptionShareMessage{})
 
 	// Delete old log
-	filename := fmt.Sprintf("simulation/logs/.log%s-%s", args[2], args[3])
+	n := 10
+	delta := 85
+	lambda := 450
+	kappa := 2
+	txSize := 8
+	// Runtime is 120s
+	rounds := 120_000/lambda
+	if kappa > n {
+		kappa = n
+	}
+	filename := fmt.Sprintf("simulation/logs/.log%s-%s_%d", args[2], args[3], lambda)
 	os.Remove(filename)
 
 	// Write logs to file
@@ -79,7 +89,8 @@ func main() {
 	log.SetOutput(f)
 	log.SetFlags(log.Lmicroseconds)
 
-	//simulation.RunNodes(arg1, arg2, 3, 0, 6, 500, 2, 8)
+	log.Printf("Parameters: nodes: %d delta: %d lambda: %d kappa: %d txSize: %d", n, delta, lambda, kappa, txSize)
+
 	_ = arg1
 	_ = arg2
 
@@ -87,83 +98,15 @@ func main() {
 	if startTime < 0 {
 		startTime = t.Second()
 	}
+	simulation.KeySetup(30, 30)
+	simulation.KeySetup(200, 200)
+	panic("")
+	cfg := utils.CrashesChangingNetworkCfg(n, 3, rounds)
+
 	start := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), startTime, 0, t.Location())
-	simulation.RunNode(arg1, 3, 1, 1, 100, 3, 8, start, syncNoCrash())
+	simulation.RunNodes(arg1, arg2, n, 0, delta, lambda, kappa, txSize, start, cfg)
+	//simulation.RunNode(arg1, 2, 0, 1, 100, 2, 8, start, syncNoCrash())
 
 	//simulation.KeySetup(8, 4)
-	//simulation.RunNetwork()
-}
-
-func syncNoCrash() *utils.SimulationConfig {
-	// No crash and a synchronous network
-
-	rounds := 500
-	rcfgs := make(utils.RoundConfigs)
-	syncCfg := &utils.RoundConfig{
-		Ta: 0,
-		Ts: 0,
-		Crashed: map[int]bool{
-		},
-		Async: false,
-	}
-	for i := 0; i < rounds; i++ {
-		rcfgs[i] = syncCfg
-	}
-
-	return &utils.SimulationConfig{
-		Rounds:    rounds,
-		RoundCfgs: rcfgs,
-	}
-}
-
-func asyncOneCrash() *utils.SimulationConfig {
-	// One node crashed, network switches between sync and async
-	rounds := 500
-	rcfgs := make(utils.RoundConfigs)
-	asyncCfg := &utils.RoundConfig{
-		Ta: 1,
-		Ts: 1,
-		Crashed: map[int]bool{
-			3: true,
-		},
-		Async: true,
-	}
-	syncCfg := &utils.RoundConfig{
-		Ta: 1,
-		Ts: 1,
-		Crashed: map[int]bool{
-			3: true,
-		},
-		Async: false,
-	}
-
-	for i := 0; i < 50; i++ {
-		rcfgs[i] = syncCfg
-	}
-	for i := 50; i < 100; i++ {
-		rcfgs[i] = asyncCfg
-	}
-	for i := 100; i < 150; i++ {
-		rcfgs[i] = syncCfg
-	}
-	for i := 150; i < 200; i++ {
-		rcfgs[i] = asyncCfg
-	}
-	for i := 200; i < 250; i++ {
-		rcfgs[i] = syncCfg
-	}
-	for i := 300; i < 350; i++ {
-		rcfgs[i] = asyncCfg
-	}
-	for i := 400; i < 450; i++ {
-		rcfgs[i] = syncCfg
-	}
-	for i := 450; i < rounds; i++ {
-		rcfgs[i] = asyncCfg
-	}
-
-	return &utils.SimulationConfig{
-		Rounds:    rounds,
-		RoundCfgs: rcfgs,
-	}
+	//simulation.RunNetwork(start, syncNoCrash())
 }

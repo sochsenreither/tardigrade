@@ -9,38 +9,14 @@ import (
 	"golang.org/x/text/message"
 )
 
-func RunNetwork(cfg *utils.SimulationConfig) {
-	networkSimulation(4, 80, 500, 4, 8, cfg)
+func RunNetwork(startTime time.Time, cfg *utils.SimulationConfig) {
+	networkSimulation(10, 1, 55000, 3, 8, cfg, startTime)
 }
 
-func networkSimulation(n, delta, lambda, kappa, txSize int, cfg *utils.SimulationConfig) {
+func networkSimulation(n, delta, lambda, kappa, txSize int, cfg *utils.SimulationConfig, startTime time.Time) {
 	bufTicker := time.NewTicker(time.Duration(lambda) * time.Millisecond) // Ticker for filling buf
 	done := make(chan struct{}, n)
 	term := make(chan struct{})
-	rounds := 12
-
-	rcfgs := make(map[int]*utils.RoundConfig)
-	// hCfg := &abc.RoundConfig{
-	// 	Ta: 0,
-	// 	Ts: 0,
-	// 	Crashed: map[int]bool{},
-	// }
-	cCfg := &utils.RoundConfig{
-		Ta: 1,
-		Ts: 1,
-		Crashed: map[int]bool{
-			3: true,
-			//4: true,
-		},
-	}
-
-	for i := 0; i < 12; i++ {
-		rcfgs[i] = cCfg
-	}
-
-	// for i := 10; i < 12; i++ {
-	// 	rcfgs[i] = cCfg
-	// }
 
 	// run ABCs
 	abcs, _, _, coin, _, handlers := setupNetworkSimulation(n, delta, lambda, kappa, txSize, cfg.RoundCfgs)
@@ -50,10 +26,11 @@ func networkSimulation(n, delta, lambda, kappa, txSize int, cfg *utils.Simulatio
 		i := i
 		abcs[i].FillBuffer(randomTransactions(n, txSize, 4))
 		go func() {
-			abcs[i].Run(rounds, rcfgs)
+			abcs[i].Run(cfg.Rounds, cfg.RoundCfgs, startTime)
 			done <- struct{}{}
 		}()
 	}
+	<-time.After(time.Until(startTime))
 	start := time.Now()
 
 	go func() {

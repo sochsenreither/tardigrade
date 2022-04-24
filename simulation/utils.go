@@ -32,7 +32,7 @@ type Keys struct {
 
 func GetIPs(n int) map[int]string {
 	// Read from file. If file doesn't exists create a new one
-	filename := fmt.Sprintf("simulation/addresses-%d.json", n)
+	filename := fmt.Sprintf("simulation/addresses/addresses-%d.json", n)
 	if fileExists(filename) {
 		content, err := ioutil.ReadFile(filename)
 		if err != nil {

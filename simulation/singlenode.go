@@ -26,10 +26,8 @@ func RunNode(id, n, t, delta, lambda, kappa, txSize int, startTime time.Time, cf
 	term := make(chan struct{})
 
 
-	<-time.After(time.Until(startTime))
-	fmt.Printf("Starting\n")
 	go func() {
-		node.Run(cfg.Rounds, cfg.RoundCfgs)
+		node.Run(cfg.Rounds, cfg.RoundCfgs, startTime)
 		term <- struct{}{}
 	}()
 	start := time.Now()

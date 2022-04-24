@@ -99,7 +99,10 @@ func NewABC(cfg *ABCConfig, tcs *tcs) *ABC {
 	return u
 }
 
-func (abc *ABC) Run(maxRound int, roundCfg utils.RoundConfigs) {
+func (abc *ABC) Run(maxRound int, roundCfg utils.RoundConfigs, start time.Time) {
+	<-time.After(time.Until(start))
+	startTime := time.Now()
+	log.Printf("Node %d starting", abc.Cfg.NodeId)
 	go abc.Cfg.handlerFuncs.Receiver()
 
 	stop := make(chan struct{}, 100)
@@ -122,7 +125,7 @@ func (abc *ABC) Run(maxRound int, roundCfg utils.RoundConfigs) {
 		select {
 		case <-stop:
 			wg.Wait()
-			log.Printf("Node %d: exiting", abc.Cfg.NodeId)
+			log.Printf("Node %d exiting with runtime %d", abc.Cfg.NodeId, time.Since(startTime).Milliseconds())
 			ticker.Stop()
 			return
 		case <-ticker.C:
@@ -154,9 +157,8 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 		return
 	}
 	startTotal := time.Now()
-	start := time.Now()
 
-	log.Printf("Node %d: starting round %d\n", abc.Cfg.NodeId, r)
+	// log.Printf("Node %d: starting round %d\n", abc.Cfg.NodeId, r)
 	// Ticker for starting BLA
 	blaTicker := time.NewTicker(time.Duration(4*abc.Cfg.delta) * time.Millisecond)
 
@@ -250,11 +252,11 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 		t.Stop()
 	}
 
-	blaTime := time.Since(start)
+	var start time.Time
 
 	if abc.isWellFormedBlockShare(blaOutput) {
 		// If blaOutput is well-formed, input it to ACS
-		// log.Printf("Node %d round %d: Running ACS with BLA output", abc.cfg.nodeId, r)
+		// log.Printf("Node %d round %d: Running ACS with BLA output", abc.Cfg.NodeId, r)
 		start = time.Now()
 		abc.acss[r].SetInput(blaOutput)
 		abc.acss[r].Run()
@@ -266,7 +268,7 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 		mu.Lock()
 		bs := utils.NewBlockShare(smallPb, ptr)
 		mu.Unlock()
-		// log.Printf("Node %d round %d: Running ACS after failed BLA", abc.cfg.nodeId, r)
+		// log.Printf("Node %d round %d: Running ACS after failed BLA", abc.Cfg.NodeId, r)
 		start = time.Now()
 		abc.acss[r].SetInput(bs)
 		go abc.acss[r].Run()
@@ -275,7 +277,7 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 	acsOutput := abc.acss[r].GetValue()
 	acsTime := time.Since(start)
 	var block *utils.Block
-	//log.Printf("Node %d round %d: received output from ACS. len: %d", abc.cfg.nodeId, r, len(acsOutput))
+	// log.Printf("Node %d round %d: received output from ACS. len: %d", abc.Cfg.NodeId, r, len(acsOutput))
 	if len(acsOutput) == 1 {
 		// BLA was successfull and we got one large block as result
 		if abc.Cfg.committee[abc.Cfg.NodeId] {
@@ -303,7 +305,7 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 	}
 
 	//abc.setBlock(r, block)
-	count, latency := abc.setBlock(r, block)
+	count, uniqueTxs, latency := abc.setBlock(r, block)
 	abc.Lock()
 	abc.LatencyTotal += latency
 	abc.FinishedRounds++
@@ -313,14 +315,14 @@ func (abc *ABC) runProtocol(r int, rcfg *utils.RoundConfig) {
 	if len(acsOutput) != 1 {
 		proto = "acs"
 	}
-	log.Printf("Node %d fin %d with %s: %d txs, latency: %s, t_bla: %s, t_acs: %s, t_total: %s", abc.Cfg.NodeId, r, proto, count, latency, blaTime, acsTime, runTimeTotal)
+	log.Printf("Node %d finished round %d with %s. txs: %d unique_txs: %d latency: %d t_acs: %d t_total: %d", abc.Cfg.NodeId, r, proto, count, uniqueTxs, latency.Milliseconds(), acsTime.Milliseconds(), runTimeTotal.Milliseconds())
 
 }
 
 // SetBlock removes all transactions from the buffer that are in the block and sets the block of
 // the current round. Note: duplicate transactions in the buffer won't get removed, but there
 // shouldn't be duplicates anyway. Returns the amount of transactions in the block.
-func (abc *ABC) setBlock(r int, block *utils.Block) (int, time.Duration) {
+func (abc *ABC) setBlock(r int, block *utils.Block) (int, int, time.Duration) {
 	// Removes an element at index i
 	remove := func(arr [][]byte, i int) [][]byte {
 		arr[i] = arr[len(arr)-1]
@@ -348,9 +350,9 @@ func (abc *ABC) setBlock(r int, block *utils.Block) (int, time.Duration) {
 
 	// TODO: division by 0. What to do when there are no new transactions?
 	if removedTxs == 0 {
-		return len(block.Txs), latency
+		return len(block.Txs), removedTxs, latency
 	} else {
-		return len(block.Txs), latency / time.Duration(removedTxs)
+		return len(block.Txs), removedTxs, latency / time.Duration(removedTxs)
 	}
 }
 

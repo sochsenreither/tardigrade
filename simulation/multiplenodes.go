@@ -2,17 +2,22 @@ package simulation
 
 import (
 	"fmt"
+	"log"
 	"time"
 
 	abc "github.com/sochsenreither/upgrade/upgrade"
 	"github.com/sochsenreither/upgrade/utils"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
 
-func RunNodes(startId, endId, n, t, delta, lambda, kappa, txSize int, cfg *utils.SimulationConfig) {
+func RunNodes(startId, endId, n, t, delta, lambda, kappa, txSize int, startTime time.Time, cfg *utils.SimulationConfig) {
 	if startId == endId && startId == -1 {
 		runCoin(n, kappa)
 		return
 	}
+	done := make(chan struct{}, n*2)
+	term := make(chan struct{})
 
 	var nodes []*abc.ABC
 	var handlers []*utils.NetworkHandler
@@ -23,45 +28,72 @@ func RunNodes(startId, endId, n, t, delta, lambda, kappa, txSize int, cfg *utils
 		handlers = append(handlers, handler)
 	}
 
+	runningNodes := len(nodes)
+
 	for _, node := range nodes {
 		node.FillBuffer(randomTransactions(n, txSize, 5))
 	}
 
-	// Testsetup
-	maxRounds := 30
-	rcfgs := make(map[int]*utils.RoundConfig)
-	hCfg := &utils.RoundConfig{
-		Ta: 0,
-		Ts: 0,
-		Crashed: map[int]bool{},
-	}
-	for i := 0; i < maxRounds; i++ {
-		rcfgs[i] = hCfg
-	}
-
 	for _, node := range nodes {
-		fmt.Println("Starting node", node.Cfg.NodeId)
-		go node.Run(maxRounds, rcfgs)
+		go func(node *abc.ABC) {
+			node.Run(cfg.Rounds, cfg.RoundCfgs, startTime)
+			done <- struct{}{}
+		}(node)
 	}
+	go func() {
+		count := 0
+		for range done {
+			count++
+			if count == runningNodes {
+				term <- struct{}{}
+			}
+		}
+	}()
 
+	<-time.After(time.Until(startTime))
 	bufTicker := time.NewTicker(time.Duration(lambda) * time.Millisecond) // Ticker for filling buf
 	statsTicker := time.NewTicker(5 * time.Second)                        // Ticker for stats
-	ticks := 1
+	//ticks := 1
 	txs := make(map[[32]byte]int) // Maps h(tx) -> count
+	start := time.Now()
 	for {
 		select {
-		case <-statsTicker.C:
+		case <-term:
+			runtime := time.Since(start)
 			blocks := nodes[0].GetBlocks()
 			totalTxs := 0
 			for _, block := range blocks {
 				totalTxs += block.TxsCount
 			}
 			uniqueTransactions(blocks, txs, txSize)
-			fmt.Printf(" -------------------- %d seconds ---------------------\n", ticks*5)
-			fmt.Printf("| Total transactions: %d, txs/s: %d\n", totalTxs, totalTxs/(ticks*5))
-			fmt.Printf("| Unique transactions: %d, Unique txs/s: %d\n", len(txs), len(txs)/(ticks*5))
-			fmt.Printf(" ----------------------------------------------------\n")
-			ticks++
+			txps := float64(totalTxs) / float64(runtime.Seconds())
+			uTxps := float64(len(txs)) / float64(runtime.Seconds())
+			fmt.Printf("Simulation ran for %s\n", runtime)
+			fmt.Printf("Total transactions: %d, txs/s: %.2f\n", totalTxs, txps)
+			fmt.Printf("Unique transactions: %d, Unique txs/s: %.2f\n", len(txs), uTxps)
+			totalBytes := 0
+			for _, h := range handlers {
+				totalBytes += h.BytesSent()
+			}
+			p := message.NewPrinter(language.English)
+			p.Printf("Bytes sent: %d\n", totalBytes)
+			for i := 0; i < endId-startId; i++ {
+				p.Printf("Bytes sent by node %d: %d. B/tx: %d\n", i, handlers[i].BytesSent(), handlers[i].BytesSent()/totalTxs)
+				log.Printf("Bytes sent by Node %d: %d", i, handlers[i].BytesSent())
+			}
+			return
+		case <-statsTicker.C:
+			// blocks := nodes[0].GetBlocks()
+			// totalTxs := 0
+			// for _, block := range blocks {
+			// 	totalTxs += block.TxsCount
+			// }
+			// uniqueTransactions(blocks, txs, txSize)
+			// fmt.Printf(" -------------------- %d seconds ---------------------\n", ticks*5)
+			// fmt.Printf("| Total transactions: %d, txs/s: %d\n", totalTxs, totalTxs/(ticks*5))
+			// fmt.Printf("| Unique transactions: %d, Unique txs/s: %d\n", len(txs), len(txs)/(ticks*5))
+			// fmt.Printf(" ----------------------------------------------------\n")
+			// ticks++
 		case <-bufTicker.C:
 			for _, node := range nodes {
 				node.FillBuffer(randomTransactions(n, txSize, 2))

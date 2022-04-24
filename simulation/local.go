@@ -36,7 +36,7 @@ func local(n, t, delta, lambda, kappa, txSize int) {
 		i := i
 		abcs[i].FillBuffer(randomTransactions(n, txSize, 20))
 		go func() {
-			abcs[i].Run(maxRounds, rcfgs)
+			abcs[i].Run(maxRounds, rcfgs, time.Now())
 		}()
 	}
 

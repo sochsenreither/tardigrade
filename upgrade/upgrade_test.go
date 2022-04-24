@@ -114,7 +114,7 @@ func TestSimpleTest(t *testing.T) {
 		i := i
 		go func() {
 			defer wg.Done()
-			abcs[i].Run(maxRounds, cfgs)
+			abcs[i].Run(maxRounds, cfgs, time.Now())
 		}()
 	}
 	wg.Wait()
@@ -140,7 +140,6 @@ func TestSimpleTest(t *testing.T) {
 		txsCount += abcs[0].GetBlocks()[j].TxsCount
 	}
 
-	// TODO: count unique transactions
 	fmt.Println("Total transactions:", txsCount)
 	fmt.Println("Transactions per second:", float64(txsCount)/float64(executionTime/time.Millisecond)*1000)
 }
