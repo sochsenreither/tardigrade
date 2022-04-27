@@ -19,6 +19,7 @@ An asynchronous byzantine agreement protocol based on [Mostéfaoui et al.](https
 
 ### TARDIGRADE
 The top level protocol that combines all the above sub-protocols into a complete consensus protocol.
+The goal of this protocol is to maintain liveness under varying network conditions and byzantine faults.
 
 #### Requirements
 ```shell
