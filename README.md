@@ -1,6 +1,6 @@
-# UPGRADE consensus algorithm
+# TARDIGRADE consensus algorithm
 
-This is an implementation of the UPGRADE atomic broadcast protocol. The research and protocols for this implementation are explained in "[TARDIGRADE: An Atomic Broadcast Protocol for
+This is an implementation of the TARDIGRADE atomic broadcast protocol. The research and protocols for this implementation are explained in "[TARDIGRADE: An Atomic Broadcast Protocol for
 Arbitrary Network Conditions](https://eprint.iacr.org/2020/142.pdf)" by Erica Blum, Jonathan Katz, and Julian Loss, 2021.
 
 The building blocks are following sub-protocols.
