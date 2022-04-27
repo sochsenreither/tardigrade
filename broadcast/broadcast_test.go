@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
-	"github.com/sochsenreither/upgrade/utils"
+	"github.com/sochsenreither/tardigrade/utils"
 )
 
 func setupKeys(n int) (tcrsa.KeyShareList, *tcrsa.KeyMeta) {

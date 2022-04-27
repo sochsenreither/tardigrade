@@ -1,4 +1,4 @@
-module github.com/sochsenreither/upgrade
+module github.com/sochsenreither/tardigrade
 
 go 1.17
 

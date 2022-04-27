@@ -69,9 +69,9 @@ func CrashesChangingNetworkCfg(n, t, rounds int) *SimulationConfig {
 		Async: false,
 	}
 	aCfg := &RoundConfig{
-		Ta: t,
-		Ts: t,
-		Crashed: makeCrashedMap(n, t),
+		Ta: 0,
+		Ts: 0,
+		Crashed: makeCrashedMap(n, 0),
 		Async: true,
 	}
 

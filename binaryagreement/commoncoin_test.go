@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
-	"github.com/sochsenreither/upgrade/utils"
+	"github.com/sochsenreither/tardigrade/utils"
 )
 
 var wg sync.WaitGroup

@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	abc "github.com/sochsenreither/upgrade/upgrade"
-	"github.com/sochsenreither/upgrade/utils"
+	abc "github.com/sochsenreither/tardigrade/tardigrade"
+	"github.com/sochsenreither/tardigrade/utils"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )

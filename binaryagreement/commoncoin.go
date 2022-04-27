@@ -13,7 +13,7 @@ import (
 	"strconv"
 
 	"github.com/niclabs/tcrsa"
-	"github.com/sochsenreither/upgrade/utils"
+	"github.com/sochsenreither/tardigrade/utils"
 )
 
 // TODO: network handler for coin

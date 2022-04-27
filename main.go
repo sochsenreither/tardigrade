@@ -10,14 +10,14 @@ import (
 	"strconv"
 	"time"
 
-	aba "github.com/sochsenreither/upgrade/binaryagreement"
-	bla "github.com/sochsenreither/upgrade/blockagreement"
-	rbc "github.com/sochsenreither/upgrade/broadcast"
-	acs "github.com/sochsenreither/upgrade/commonsubset"
-	abc "github.com/sochsenreither/upgrade/upgrade"
-	"github.com/sochsenreither/upgrade/utils"
+	aba "github.com/sochsenreither/tardigrade/binaryagreement"
+	bla "github.com/sochsenreither/tardigrade/blockagreement"
+	rbc "github.com/sochsenreither/tardigrade/broadcast"
+	acs "github.com/sochsenreither/tardigrade/commonsubset"
+	abc "github.com/sochsenreither/tardigrade/tardigrade"
+	"github.com/sochsenreither/tardigrade/utils"
 
-	"github.com/sochsenreither/upgrade/simulation"
+	"github.com/sochsenreither/tardigrade/simulation"
 )
 
 func main() {
@@ -89,7 +89,7 @@ func main() {
 	}
 	defer f.Close()
 
-	//log.SetOutput(f)
+	log.SetOutput(f)
 	log.SetFlags(log.Lmicroseconds)
 
 	log.Printf("Parameters: nodes: %d delta: %d lambda: %d kappa: %d txSize: %d rounds: %d", n, delta, lambda, kappa, txSize, rounds)
@@ -103,7 +103,7 @@ func main() {
 		startTime = t.Second()
 	}
 
-	cfg := utils.CrashCfg(n, 1, rounds, true)
+	cfg := utils.CrashCfg(n, 0, rounds, true)
 
 	start := time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), startTime, 0, t.Location())
 	simulation.RunNodes(arg1, arg2, n, 0, delta, lambda, kappa, txSize, start, cfg)

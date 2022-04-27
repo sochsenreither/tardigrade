@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sochsenreither/upgrade/utils"
+	"github.com/sochsenreither/tardigrade/utils"
 )
 
 func TestABADifferentValues(t *testing.T) {

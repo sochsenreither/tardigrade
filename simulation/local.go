@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sochsenreither/upgrade/utils"
+	"github.com/sochsenreither/tardigrade/utils"
 
-	aba "github.com/sochsenreither/upgrade/binaryagreement"
-	abc "github.com/sochsenreither/upgrade/upgrade"
+	aba "github.com/sochsenreither/tardigrade/binaryagreement"
+	abc "github.com/sochsenreither/tardigrade/tardigrade"
 )
 
 func RunLocal() {

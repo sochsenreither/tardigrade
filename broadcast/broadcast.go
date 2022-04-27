@@ -8,7 +8,7 @@ import (
 	"strconv"
 
 	"github.com/niclabs/tcrsa"
-	"github.com/sochsenreither/upgrade/utils"
+	"github.com/sochsenreither/tardigrade/utils"
 )
 
 type ReliableBroadcast struct {

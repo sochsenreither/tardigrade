@@ -14,9 +14,9 @@ import (
 
 	"github.com/niclabs/tcpaillier"
 	"github.com/niclabs/tcrsa"
-	aba "github.com/sochsenreither/upgrade/binaryagreement"
-	abc "github.com/sochsenreither/upgrade/upgrade"
-	"github.com/sochsenreither/upgrade/utils"
+	aba "github.com/sochsenreither/tardigrade/binaryagreement"
+	abc "github.com/sochsenreither/tardigrade/tardigrade"
+	"github.com/sochsenreither/tardigrade/utils"
 )
 
 

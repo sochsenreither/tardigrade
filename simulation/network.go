@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sochsenreither/upgrade/utils"
+	"github.com/sochsenreither/tardigrade/utils"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )

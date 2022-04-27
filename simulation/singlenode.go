@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/sochsenreither/upgrade/utils"
+	"github.com/sochsenreither/tardigrade/utils"
 )
 
 func RunNode(id, n, t, delta, lambda, kappa, txSize int, startTime time.Time, cfg *utils.SimulationConfig) {

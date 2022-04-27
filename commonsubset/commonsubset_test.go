@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/niclabs/tcrsa"
-	aba "github.com/sochsenreither/upgrade/binaryagreement"
-	rbc "github.com/sochsenreither/upgrade/broadcast"
-	"github.com/sochsenreither/upgrade/utils"
+	aba "github.com/sochsenreither/tardigrade/binaryagreement"
+	rbc "github.com/sochsenreither/tardigrade/broadcast"
+	"github.com/sochsenreither/tardigrade/utils"
 )
 
 func TestACSSameValue(t *testing.T) {

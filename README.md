@@ -1,6 +1,6 @@
 # UPGRADE consensus algorithm
 
-This is a work in progress implementation of the UPGRADE atomic broadcast protocol. The research and protocols for this implementation are explained in "[TARDIGRADE: An Atomic Broadcast Protocol for
+This is an implementation of the UPGRADE atomic broadcast protocol. The research and protocols for this implementation are explained in "[TARDIGRADE: An Atomic Broadcast Protocol for
 Arbitrary Network Conditions](https://eprint.iacr.org/2020/142.pdf)" by Erica Blum, Jonathan Katz, and Julian Loss, 2021.
 
 The building blocks are following sub-protocols.
@@ -17,7 +17,7 @@ A committee-based terminating ACS protocol.
 ### Binary Agreement
 An asynchronous byzantine agreement protocol based on [Mostéfaoui et al.](https://hal.inria.fr/hal-00944019v2/document) using a common coin based on threshold signatures ([Cachin et al.](https://allquantor.at/blockchainbib/pdf/cachin2000random.pdf)). Ported from [Honey Badger BFT](https://github.com/initc3/HoneyBadgerBFT-Python/)
 
-### UPGRADE
+### TARDIGRADE
 The top level protocol that combines all the above sub-protocols into a complete consensus protocol.
 
 #### Requirements
